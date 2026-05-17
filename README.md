@@ -1,4 +1,4 @@
-# FastFlowLM-GTK
+# FastFlowLM-gtk
 
 A minimalist, high-performance GTK 4 desktop interface for [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM).
 
