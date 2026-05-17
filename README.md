@@ -1,41 +1,31 @@
 # FastFlowLM-gtk
 
-A minimalist, high-performance GTK 4 desktop interface for [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM).
+A distraction-free, ultra-minimalist desktop interface for [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM).
 
-Built for Arch Linux, this application provides a distraction-free environment for interacting with local LLMs, focusing on a "Just Talk" aesthetic with standard GNOME dark mode integration.
+I built this because I wanted a way to interact with local LLMs that didn't feel like a cluttered web browser or a heavy application. FastFlowLM-gtk is designed to stay out of your way: it's just you, the model, and the chat.
 
 ## Features
+- **Pure "Just Talk" Experience:** Standard GNOME dark mode with clean, floating AI chat bubbles that blend seamlessly into the background.
+- **Auto-Server Management:** No need to tinker with ports—it detects if the server is running, and if not, it handles the lifecycle for you.
+- **Smart Model Loading:** Pinned installed models for quick access and a "click-to-download" flow for everything else.
+- **Persistent Chat History:** Everything you talk about is saved automatically to your config folder, with the first prompt acting as the chat title.
+- **Professional Coding:** Includes high-quality syntax highlighting for code blocks so you can paste and read code directly in the chat.
+- **No Clutter:** Simple "Eject" and "New Chat" buttons—nothing more.
 
-- **Minimalist Aesthetic:** Standard GNOME dark mode with pure black AI chat bubbles for high-contrast, distraction-free reading.
-- **Smart Backend Management:** Automatically detects `flm serve` status and initializes the environment.
-- **Per-Chat Model Loading:** Automates loading/unloading models per session to optimize VRAM/RAM usage.
-- **Persistent History:** Automatically saves your chat sessions with smart tab titles and model metadata.
-- **Professional Streaming:** Real-time word-by-word streaming with GtkSourceView 5 syntax highlighting for code blocks.
-- **Management Tools:** Built-in model selector with download capability and forceful Eject button for memory management.
+## Quick Installation
 
-## Installation
+This application is built for Arch Linux. We've made installation a one-command process that takes care of your system dependencies for you.
 
-### Prerequisites
-- Python 3.12+
-- PyGObject (GTK 4.14+, Libadwaita 1.5+)
-- libsoup 3.0
-- GtkSourceView 5
-- `flm` (FastFlowLM)
-
-On Arch Linux:
-```bash
-sudo pacman -S python python-gobject gtk4 libadwaita libsoup3 gtksourceview5
-```
-
-### Installation
-1. Clone this repository:
+1. **Clone the repo:**
    ```bash
    git clone https://github.com/marleylinux/FastFlowLM-GTK
    cd FastFlowLM-GTK
    ```
-2. Run the installer:
+
+2. **Run the installer:**
    ```bash
    chmod +x install.sh
    sudo ./install.sh
    ```
-3. Launch via your terminal as `flm-gtk` or from your application menu.
+
+That’s it! The script will automatically install `fastflowlm` and all required GTK/GNOME dependencies from the Arch repositories, then set up the application for you. You can find "FastFlowLM-gtk" in your application launcher.
