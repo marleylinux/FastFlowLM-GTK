@@ -25,10 +25,10 @@ mkdir -p "$ICON_DIR"
 mkdir -p "$APP_DIR"
 
 # Install Python files
-cp -r src "$INSTALL_DIR/"
+cp -r src/fastflowlm_gtk "$INSTALL_DIR/"
 cp app.py "$INSTALL_DIR/"
 chmod 644 "$INSTALL_DIR"/app.py
-find "$INSTALL_DIR/src" -name "*.py" -exec chmod 644 {} +
+chmod -R 644 "$INSTALL_DIR"/fastflowlm_gtk
 
 # Install Icon
 cp flm-gtk.png "$ICON_DIR/fastflowlm-gtk.png"
@@ -41,7 +41,7 @@ chmod 644 "$APP_DIR/fastflowlm-gtk.desktop"
 # Create executable wrapper
 cat <<EOF > "$BIN_DIR/fastflowlm-gtk"
 #!/bin/sh
-export PYTHONPATH="$INSTALL_DIR/src:\$PYTHONPATH"
+export PYTHONPATH="$INSTALL_DIR:\$PYTHONPATH"
 exec python $INSTALL_DIR/app.py "\$@"
 EOF
 chmod 755 "$BIN_DIR/fastflowlm-gtk"
