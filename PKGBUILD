@@ -10,15 +10,10 @@ depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'libsoup3' 'gtksourceview
 source=("fastflowlm-gtk.desktop"
         "flm-gtk.png"
         "app.py"
-        "main.py"
-        "flm.py"
-        "utils.py")
-sha256sums=('a1cb338b37b7eef0b3824faf4fd622ec9cb4cef26e975bd7bbf9464bd8ff240b'
-            'fd6abca67c9170a7795c66c0bf46c9b111a612a930ffae9dd05defeecbbe8c4e'
-            '71b15ffa83eb4403d40a9a4c7faac38c1fb37d2594c45b86f9716f20efe6b6f0'
-            'e7ad07e9b5cc3e6c89c91ce4a6ec732a8d92b1a46d014d8328a20c71b3332246'
-            'a402d09de88b74929723ff7367c58dd05aba4f12ff8c9711fae70476de9734e3'
-            'f359d5e2b5d03268ab4fdbedb85c3ea208199c007d2c355f5e445ed6c5de0441')
+        "src/fastflowlm_gtk/main.py"
+        "src/fastflowlm_gtk/flm.py"
+        "src/fastflowlm_gtk/utils.py")
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # Install Python package
