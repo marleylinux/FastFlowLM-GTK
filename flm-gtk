@@ -104,8 +104,12 @@ class FlmChatApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
         self.server_process: Optional[subprocess.Popen] = None
-        self.models: List[Dict] = []
+        
+        # Pre-fetch models to avoid delay
+        self.models = self.get_all_models()
+        
         self.current_model: Optional[str] = None
+        self.ai_task = None
         self.downloading_models = set()
         self.tasks = set()
         self.session = Soup.Session()
@@ -223,12 +227,6 @@ class FlmChatApp(Adw.Application):
         self.model_btn.set_label("Select a model to start")
         self.header.set_title_widget(self.model_btn)
         
-        # Eject Button
-        self.btn_eject = Gtk.Button(icon_name="media-eject-symbolic")
-        self.btn_eject.set_tooltip_text("Eject (Stop Server)")
-        self.btn_eject.connect("clicked", self.on_eject)
-        self.header.pack_end(self.btn_eject)
-
         # Chat List
         self.scrolled = Gtk.ScrolledWindow()
         self.scrolled.set_vexpand(True)
@@ -328,9 +326,27 @@ class FlmChatApp(Adw.Application):
 
     def on_allow_switch_toggled(self, action, value):
         new_state = not action.get_state().get_boolean()
-        action.set_state(GLib.Variant.new_boolean(new_state))
-        self.allow_mid_chat_switch = new_state
-        self.update_model_ui()
+        
+        if new_state: # Warn when turning ON
+            dialog = Adw.MessageDialog(
+                transient_for=self.win,
+                heading="Enable Model Switching?",
+                body="Enabling model switching allows you to change the active model at any time, which may reload the model server. Continue?"
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("enable", "Enable")
+            dialog.set_response_appearance("enable", Adw.ResponseAppearance.SUGGESTED)
+            dialog.connect("response", lambda d, r: self.complete_switch_toggle(action, r))
+            dialog.present()
+        else:
+            self.complete_switch_toggle(action, "enable")
+
+    def complete_switch_toggle(self, action, response):
+        if response == "enable":
+            new_state = not action.get_state().get_boolean()
+            action.set_state(GLib.Variant.new_boolean(new_state))
+            self.allow_mid_chat_switch = new_state
+            self.update_model_ui()
 
     def run_task(self, coro):
         task = asyncio.create_task(coro)
@@ -392,6 +408,10 @@ class FlmChatApp(Adw.Application):
         return model_data is not None and model_data.get('vlm', False)
 
     def update_model_ui(self):
+        # Refresh models just in case
+        if not self.models:
+            self.models = self.get_all_models()
+        
         if self.current_model:
             label_text = self.current_model
             if self.is_current_model_vlm():
@@ -406,7 +426,9 @@ class FlmChatApp(Adw.Application):
         # Attach Button Sensitivity
         self.btn_attach.set_sensitive(self.is_current_model_vlm())
         
-        if not self.allow_mid_chat_switch and self.history and is_running:
+        # If history exists, we should generally lock the model.
+        # If the model was ejected, we shouldn't allow changing it to a new model unless the chat is cleared.
+        if not self.allow_mid_chat_switch and self.history:
             self.model_btn.set_sensitive(False)
             self.model_btn.set_tooltip_text("Model locked in memory during active conversation.")
         elif not ram_ok and not is_running:
@@ -684,9 +706,15 @@ class FlmChatApp(Adw.Application):
             self.sessions_metadata = [m for m in self.sessions_metadata if m["id"] != session_id]
             
             if self.current_session_id == session_id:
-                self.on_new_chat(None)
+                self.entry.get_buffer().set_text("")
+                self.chat_box_remove_all()
+                self.history = []
+                self.current_session_id = None
+                self.update_model_ui()
+                self.add_system_message("Session deleted.")
             
             self.update_history_ui()
+        dialog.destroy()
 
     def on_clear_history(self, action, value):
         dialog = Adw.MessageDialog(
@@ -708,21 +736,32 @@ class FlmChatApp(Adw.Application):
                     if f.endswith(".json"):
                         os.remove(os.path.join(self.history_dir, f))
                 self.sessions_metadata = []
-                self.on_new_chat(None)
+                self.entry.get_buffer().set_text("")
+                self.chat_box_remove_all()
+                self.history = []
+                self.current_session_id = None
+                self.update_model_ui()
+                self.add_system_message("History cleared.")
                 self.update_history_ui()
             except Exception as e:
                 self.add_system_message(f"Error clearing history: {e}")
+        dialog.destroy()
 
     def on_history_row_activated(self, listbox, row):
         index = row.get_index()
         if index < len(self.sessions_metadata):
             session_id = self.sessions_metadata[index]["id"]
             
-            if self.is_model_in_memory() or self.server_process:
+            if self.current_session_id == session_id:
+                return
+            
+            # If we have a model running, or if we had a model in the current session
+            # we should prompt the user to switch/clear.
+            if self.is_model_in_memory() or self.server_process or self.current_model:
                 dialog = Adw.MessageDialog(
                     transient_for=self.win,
                     heading="Switch Chat?",
-                    body="Switching chats will unload the current model from host RAM environment. Continue?"
+                    body="Switching chats will unload the current model and clear the current chat session. Continue?"
                 )
                 dialog.add_response("cancel", "Cancel")
                 dialog.add_response("switch", "Switch")
@@ -735,8 +774,10 @@ class FlmChatApp(Adw.Application):
 
     def on_switch_dialog_response(self, dialog, response, session_id):
         if response == "switch":
-            self.on_eject(None)
+            # Just perform the eject action directly, bypassing its dialog
+            self.execute_eject()
             self.load_session(session_id)
+        dialog.destroy()
 
     def save_session(self):
         if not self.history:
@@ -805,6 +846,26 @@ class FlmChatApp(Adw.Application):
             self.add_system_message(f"Error loading session: {e}")
 
     def on_new_chat(self, btn):
+        if not self.history:
+            self.execute_new_chat()
+            return
+            
+        dialog = Adw.MessageDialog(
+            transient_for=self.win,
+            heading="Start New Chat?",
+            body="Starting a new chat will clear the current conversation. Continue?"
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("new", "Start New Chat")
+        dialog.set_response_appearance("new", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self.on_new_chat_response)
+        dialog.present()
+
+    def on_new_chat_response(self, dialog, response):
+        if response == "new":
+            self.execute_new_chat()
+
+    def execute_new_chat(self):
         self.save_session()
         self.entry.get_buffer().set_text("")
         child = self.chat_box.get_first_child()
@@ -817,16 +878,10 @@ class FlmChatApp(Adw.Application):
         self.update_model_ui()
         self.add_system_message("New session started.")
 
-    def on_eject(self, btn):
-        if self.server_process:
-            self.server_process.terminate()
-            self.server_process = None
-        
-        subprocess.run(["pkill", "-f", "flm serve"], capture_output=True)
-        
+    def execute_eject(self):
+        # Clears model state to allow switching
         self.current_model = None
         self.update_model_ui()
-        self.add_system_message("Server process closed and VRAM/RAM pools cleared.")
 
     def on_key_pressed(self, ctrl, keyval, keycode, state):
         if keyval == Gdk.KEY_Return:
@@ -835,6 +890,12 @@ class FlmChatApp(Adw.Application):
                 return True
         return False
 
+    def chat_box_remove_all(self):
+        child = self.chat_box.get_first_child()
+        while child:
+            self.chat_box.remove(child)
+            child = self.chat_box.get_first_child()
+
     def on_send(self, widget):
         buffer = self.entry.get_buffer()
         start, end = buffer.get_bounds()
@@ -842,6 +903,10 @@ class FlmChatApp(Adw.Application):
         
         if not text and not self.selected_image_path:
             return
+            
+        # Cancel any ongoing AI task
+        if self.ai_task and not self.ai_task.done():
+            self.ai_task.cancel()
             
         buffer.set_text("")
         self.add_message(text, is_user=True, image_path=self.selected_image_path)
@@ -853,13 +918,18 @@ class FlmChatApp(Adw.Application):
         
         self.save_session()
         self.update_model_ui()
-        self.run_task(self.get_ai_response())
+        self.ai_task = asyncio.create_task(self.get_ai_response())
+        self.tasks.add(self.ai_task)
 
     async def get_ai_response(self):
         if not self.current_model:
             self.add_system_message("Please select a model first.")
             return
 
+        thinking_label = Gtk.Label(label="Thinking...")
+        thinking_label.add_css_class("dim-label")
+        self.chat_box.append(thinking_label)
+        
         bubble = self.add_message("", is_user=False)
         full_content = ""
         
@@ -890,6 +960,7 @@ class FlmChatApp(Adw.Application):
             stream = await self.session.send_async(msg, GLib.PRIORITY_DEFAULT, None)
             if not stream:
                 self.add_system_message("Error: Network endpoint request failed.")
+                self.chat_box.remove(thinking_label)
                 return
                 
             data_stream = Gio.DataInputStream.new(stream)
@@ -908,26 +979,39 @@ class FlmChatApp(Adw.Application):
                     if 'choices' in chunk and len(chunk['choices']) > 0:
                         text = chunk['choices'][0].get('delta', {}).get('content')
                         if text:
+                            # Remove thinking label when streaming starts
+                            if thinking_label.get_parent() == self.chat_box:
+                                self.chat_box.remove(thinking_label)
                             full_content += text
                             bubble.set_markup(self.markdown_to_pango(full_content))
                     self.scroll_to_bottom()
                 except Exception as e:
                     print(f"Error parsing chunk: {e}")
             
+            if thinking_label.get_parent() == self.chat_box:
+                self.chat_box.remove(thinking_label)
+            
             self.history.append({"role": "assistant", "content": full_content})
             self.save_session()
+        except asyncio.CancelledError:
+            if thinking_label.get_parent() == self.chat_box:
+                self.chat_box.remove(thinking_label)
+            raise
         except Exception as e:
+            if thinking_label.get_parent() == self.chat_box:
+                self.chat_box.remove(thinking_label)
             self.add_system_message(f"Connection mapping error: {str(e)}")
 
     def do_shutdown(self):
         self.save_session()
         if self.server_process:
             self.server_process.terminate()
-        if self.lock_fd:
-            fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
-            self.lock_fd.close()
         Adw.Application.do_shutdown(self)
 
 if __name__ == "__main__":
     app = FlmChatApp()
     app.run(sys.argv)
+
+    def execute_eject(self):
+        # Eject functionality removed
+        pass
