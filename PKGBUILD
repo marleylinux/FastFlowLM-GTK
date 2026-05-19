@@ -10,15 +10,13 @@ depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'libsoup3' 'gtksourceview
 source=("fastflowlm-gtk.desktop"
         "flm-gtk.png"
         "app.py"
-        "src/fastflowlm_gtk/main.py"
-        "src/fastflowlm_gtk/flm.py"
-        "src/fastflowlm_gtk/utils.py")
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        "src/")
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # Install Python package
   install -d "$pkgdir/usr/share/fastflowlm-gtk"
-  cp -r "$srcdir/src/fastflowlm_gtk" "$pkgdir/usr/share/fastflowlm-gtk/"
+  cp -r "$srcdir/src" "$pkgdir/usr/share/fastflowlm-gtk/"
   install -m755 "$srcdir/app.py" "$pkgdir/usr/share/fastflowlm-gtk/"
 
   # Install Icon
