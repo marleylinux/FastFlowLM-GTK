@@ -289,9 +289,9 @@ class FlmChatApp(Adw.Application):
 
         self.win.present()
         
-        # Load history and start async initialization
-        self.load_history_metadata()
-        self.run_task(self.init_server())
+        # Load history and start async initialization when UI is idle
+        GLib.idle_add(self.load_history_metadata)
+        GLib.idle_add(lambda: self.run_task(self.init_server()))
 
     def on_attach_clicked(self, btn):
         dialog = Gtk.FileChooserNative.new("Select Image", self.win, Gtk.FileChooserAction.OPEN, "Open", "Cancel")
@@ -358,9 +358,9 @@ class FlmChatApp(Adw.Application):
         task.add_done_callback(self.tasks.discard)
 
     async def init_server(self):
-        if self.is_model_in_memory():
-            self.add_system_message("Connected to flm serve process.")
-            GLib.timeout_add_seconds(2, self.clear_status_labels)
+        # if self.is_model_in_memory():
+        #     self.add_system_message("Connected to flm serve process.")
+        #     GLib.timeout_add_seconds(2, self.clear_status_labels)
         
         self.models = self.get_all_models()
         self.update_model_ui()
@@ -759,8 +759,6 @@ class FlmChatApp(Adw.Application):
             if self.current_session_id == session_id:
                 return
             
-            # If we have a model running, or if we had a model in the current session
-            # we should prompt the user to switch/clear.
             if self.is_model_in_memory() or self.server_process or self.current_model:
                 dialog = Adw.MessageDialog(
                     transient_for=self.win,
@@ -770,17 +768,19 @@ class FlmChatApp(Adw.Application):
                 dialog.add_response("cancel", "Cancel")
                 dialog.add_response("switch", "Switch")
                 dialog.set_response_appearance("switch", Adw.ResponseAppearance.DESTRUCTIVE)
-                
                 dialog.connect("response", self.on_switch_dialog_response, session_id)
                 dialog.present()
             else:
-                self.load_session(session_id)
+                self.run_task(self.load_session(session_id))
 
     def on_switch_dialog_response(self, dialog, response, session_id):
         if response == "switch":
-            # Just perform the eject action directly, bypassing its dialog
+            # Explicitly cancel the ongoing task if it exists
+            if self.ai_task and not self.ai_task.done():
+                self.ai_task.cancel()
+            
             self.execute_eject()
-            self.load_session(session_id)
+            self.run_task(self.load_session(session_id))
         dialog.destroy()
 
     def save_session(self):
@@ -821,7 +821,7 @@ class FlmChatApp(Adw.Application):
         except Exception as e:
             print(f"Error saving session: {e}")
 
-    def load_session(self, session_id):
+    async def load_session(self, session_id):
         path = os.path.join(self.history_dir, f"{session_id}.json")
         try:
             with open(path, 'r') as f:
@@ -830,18 +830,15 @@ class FlmChatApp(Adw.Application):
                 self.history = data.get("messages", [])
                 self.current_model = data.get("model")
                 
-                child = self.chat_box.get_first_child()
-                while child:
-                    next_child = child.get_next_sibling()
-                    self.chat_box.remove(child)
-                    child = next_child
+                self.chat_box_remove_all()
                 
                 for msg in self.history:
                     self.add_message(msg.get("content", ""), msg["role"] == "user", msg.get("image"))
                 
                 if self.current_model and self.current_model != "none":
                     self.model_btn.set_label(self.current_model)
-                    self.add_system_message(f"Loading {self.current_model} architecture session to RAM allocation...")
+                    self.add_system_message("Resources clearing... please wait.")
+                    await asyncio.sleep(1.5) # Give the system time to chill
                     self.start_flm_serve(self.current_model)
                     self.run_task(self.wait_for_server())
                 
@@ -924,6 +921,9 @@ class FlmChatApp(Adw.Application):
         self.update_model_ui()
         self.ai_task = asyncio.create_task(self.get_ai_response())
         self.tasks.add(self.ai_task)
+        
+        # Force scroll
+        GLib.idle_add(self.scroll_to_bottom)
 
     async def get_ai_response(self):
         if not self.current_model:
