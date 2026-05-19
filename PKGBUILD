@@ -21,24 +21,22 @@ sha256sums=('a1cb338b37b7eef0b3824faf4fd622ec9cb4cef26e975bd7bbf9464bd8ff240b'
             'f359d5e2b5d03268ab4fdbedb85c3ea208199c007d2c355f5e445ed6c5de0441')
 
 package() {
-  # Install Python files
+  # Install Source files
   install -d "$pkgdir/usr/share/fastflowlm-gtk"
-  install -m644 "$srcdir/app.py" "$pkgdir/usr/share/fastflowlm-gtk/"
-  install -m644 "$srcdir/main.py" "$pkgdir/usr/share/fastflowlm-gtk/"
-  install -m644 "$srcdir/flm.py" "$pkgdir/usr/share/fastflowlm-gtk/"
-  install -m644 "$srcdir/utils.py" "$pkgdir/usr/share/fastflowlm-gtk/"
+  cp -r src "$pkgdir/usr/share/fastflowlm-gtk/"
+  install -m644 app.py "$pkgdir/usr/share/fastflowlm-gtk/"
 
   # Install Icon
-  install -Dm644 "$srcdir/flm-gtk.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/fastflowlm-gtk.png"
+  install -Dm644 flm-gtk.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/fastflowlm-gtk.png"
 
   # Install Desktop file
-  install -Dm644 "$srcdir/fastflowlm-gtk.desktop" "$pkgdir/usr/share/applications/fastflowlm-gtk.desktop"
+  install -Dm644 fastflowlm-gtk.desktop "$pkgdir/usr/share/applications/fastflowlm-gtk.desktop"
 
   # Create executable wrapper
   install -d "$pkgdir/usr/bin"
   cat <<EOF > "$pkgdir/usr/bin/fastflowlm-gtk"
 #!/bin/sh
-export PYTHONPATH="/usr/share/fastflowlm-gtk:\$PYTHONPATH"
+export PYTHONPATH="/usr/share/fastflowlm-gtk/src:\$PYTHONPATH"
 exec python /usr/share/fastflowlm-gtk/app.py "\$@"
 EOF
   chmod +x "$pkgdir/usr/bin/fastflowlm-gtk"
