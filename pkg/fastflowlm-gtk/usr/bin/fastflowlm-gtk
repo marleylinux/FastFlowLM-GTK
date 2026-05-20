@@ -1,3 +1,0 @@
-#!/bin/sh
-export PYTHONPATH="/usr/share/fastflowlm-gtk:$PYTHONPATH"
-exec python /usr/share/fastflowlm-gtk/app.py "$@"
