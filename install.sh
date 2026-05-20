@@ -25,10 +25,8 @@ mkdir -p "$ICON_DIR"
 mkdir -p "$APP_DIR"
 
 # Install Python files
-cp -r src/fastflowlm_gtk "$INSTALL_DIR/"
-cp app.py "$INSTALL_DIR/"
-chmod 644 "$INSTALL_DIR"/app.py
-chmod -R 644 "$INSTALL_DIR"/fastflowlm_gtk
+cp app.py main.py flm.py utils.py "$INSTALL_DIR/"
+chmod 644 "$INSTALL_DIR"/*.py
 
 # Install Icon
 cp flm-gtk.png "$ICON_DIR/fastflowlm-gtk.png"
