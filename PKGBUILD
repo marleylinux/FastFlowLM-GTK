@@ -18,10 +18,8 @@ sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 package() {
   # Install Python files
   install -d "$pkgdir/usr/share/fastflowlm-gtk"
-  install -m755 "$srcdir/app.py" "$pkgdir/usr/share/fastflowlm-gtk/"
-  install -m644 "$srcdir/main.py" "$pkgdir/usr/share/fastflowlm-gtk/"
-  install -m644 "$srcdir/flm.py" "$pkgdir/usr/share/fastflowlm-gtk/"
-  install -m644 "$srcdir/utils.py" "$pkgdir/usr/share/fastflowlm-gtk/"
+  install -m644 "$srcdir/"*.py "$pkgdir/usr/share/fastflowlm-gtk/"
+  chmod 755 "$pkgdir/usr/share/fastflowlm-gtk/app.py"
 
   # Install Icon
   install -Dm644 "$srcdir/flm-gtk.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/fastflowlm-gtk.png"
