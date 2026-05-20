@@ -26,3 +26,4 @@ update-desktop-database -q
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor
 
 echo "Uninstallation complete!"
+read -p "Press enter to exit..."
