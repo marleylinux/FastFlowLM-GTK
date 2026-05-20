@@ -7,6 +7,83 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw
 
+"""
+Module for UI components and structure.
+Handles initial widget layout construction.
+"""
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, Adw
+import display
+
+def show_welcome_message(app):
+    display.chat_box_remove_all(app)
+    # Disable model selection on welcome screen
+    app.model_btn.set_sensitive(False)
+    app.model_btn.set_tooltip_text("Start a new chat to select a model.")
+    
+    # Disable interaction
+    app.entry.set_sensitive(False)
+    app.btn_send.set_sensitive(False)
+
+    welcome_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+    welcome_box.set_valign(Gtk.Align.CENTER)
+    welcome_box.set_halign(Gtk.Align.CENTER)
+    welcome_box.set_margin_top(40)
+    welcome_box.set_margin_bottom(40)
+    
+    icon = Gtk.Image(icon_name="com.marley.FastFlowLM-gtk-symbolic")
+    # Fallback to document-new if custom icon not found in system
+    if not icon.get_paintable():
+        icon.set_from_icon_name("document-new-symbolic")
+    icon.set_pixel_size(96)
+    icon.add_css_class("dim-label")
+    welcome_box.append(icon)
+    
+    title = Gtk.Label(label="FastFlowLM")
+    title.add_css_class("title-1")
+    welcome_box.append(title)
+
+    info_text = (
+        "A modern, native interface for local LLMs.\n\n"
+        "• Optimized for GTK 4 & Libadwaita\n"
+        "• Advanced session & history management\n"
+        "• Real-time NPU-accelerated performance\n"
+        "• Local-first privacy and control"
+    )
+    
+    label = Gtk.Label(label=info_text)
+    label.set_justify(Gtk.Justification.CENTER)
+    label.add_css_class("dim-label")
+    welcome_box.append(label)
+    
+    btn_start = Gtk.Button(label="Start New Chat")
+    btn_start.add_css_class("pill")
+    btn_start.add_css_class("accent-btn")
+    btn_start.set_halign(Gtk.Align.CENTER)
+    btn_start.set_size_request(200, -1)
+    btn_start.connect("clicked", lambda b: app.on_new_chat(None))
+    welcome_box.append(btn_start)
+
+    credits_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    credits_box.set_halign(Gtk.Align.CENTER)
+    credits_box.set_margin_top(12)
+    
+    link_ui = Gtk.LinkButton(uri="https://github.com/marleylinux/FastFlowLM-gtk", label="FastFlowLM-gtk")
+    link_ui.set_halign(Gtk.Align.CENTER)
+    credits_box.append(link_ui)
+
+    link_engine = Gtk.LinkButton(uri="https://github.com/FastFlowLM/FastFlowLM", label="Powered by FastFlowLM")
+    link_engine.add_css_class("dim-label")
+    link_engine.set_halign(Gtk.Align.CENTER)
+    credits_box.append(link_engine)
+    
+    welcome_box.append(credits_box)
+    
+    # Center the box inside the chat area
+    app.chat_box.append(welcome_box)
+
 def build_sidebar(app) -> Gtk.Box:
     """Builds the sidebar UI, including history and search."""
     sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -54,6 +131,11 @@ def build_main_content(app) -> Gtk.Box:
     app.btn_new = Gtk.Button(icon_name="document-new-symbolic")
     app.btn_new.connect("clicked", app.on_new_chat)
     app.header.pack_start(app.btn_new)
+    
+    app.btn_repair = Gtk.Button(icon_name="view-refresh-symbolic")
+    app.btn_repair.set_tooltip_text("Repair Model")
+    app.btn_repair.connect("clicked", app.on_repair_clicked)
+    app.header.pack_start(app.btn_repair)
     
     app.options_btn = Gtk.MenuButton(icon_name="view-more-symbolic")
     app.header.pack_start(app.options_btn)

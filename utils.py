@@ -159,7 +159,7 @@ row:hover .delete-btn {
 }
 
 .delete-btn:hover {
-    opacity: 1.0 !important;
+    opacity: 1;
     color: @error_color;
 }
 
@@ -187,6 +187,4 @@ row:hover .delete-btn {
 def markdown_to_pango(text: str) -> str:
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'```(.*?)\n?(.*?)```', r'\n<span font_family="monospace" background="#1e1e1e" color="#dcdcdc">\2</span>\n', text, flags=re.DOTALL)
-    text = re.sub(r'`(.*?)`', r'<span font_family="monospace" background="#1e1e1e" color="#dcdcdc">\1</span>', text)
     return text

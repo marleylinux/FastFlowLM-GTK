@@ -107,12 +107,24 @@ def cancel_ai_task(app) -> None:
     if app.ai_task and not app.ai_task.done():
         app.ai_task.cancel()
     
-    children = app.chat_box.get_first_child()
-    while children:
-        next_child = children.get_next_sibling()
-        if isinstance(children, Gtk.Label) and children.get_text() == "Thinking...":
-            app.chat_box.remove(children)
-        children = next_child
+    child = app.chat_box.get_first_child()
+    while child:
+        next_child = child.get_next_sibling()
+        # The spinner is a Gtk.Box containing a Gtk.Spinner and Gtk.Label.
+        # We check if it is a Gtk.Box and try to find the label inside it.
+        if isinstance(child, Gtk.Box):
+            is_spinner = False
+            inner = child.get_first_child()
+            while inner:
+                if isinstance(inner, Gtk.Label) and inner.get_text() == "Thinking...":
+                    is_spinner = True
+                    break
+                inner = inner.get_next_sibling()
+            
+            if is_spinner:
+                if child.get_parent() == app.chat_box:
+                    app.chat_box.remove(child)
+        child = next_child
 
     app.is_sending = False
     GLib.idle_add(app.unlock_ui)

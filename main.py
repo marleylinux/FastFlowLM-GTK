@@ -128,7 +128,7 @@ class FlmChatApp(Adw.Application):
         # Apply theme after window is present
         theme.apply_theme(self, self.theme_color)
         
-        GLib.idle_add(self.load_history_metadata)
+        GLib.idle_add(lambda: sessions.load_history_metadata(self))
         GLib.idle_add(lambda: self.run_task(self.init_server()))
 
     def on_search_changed(self, entry):
@@ -172,26 +172,10 @@ class FlmChatApp(Adw.Application):
                 row.set_visible(False)
 
     def on_attach_clicked(self, btn):
-        self.btn_attach.set_sensitive(False)
-        dialog = Gtk.FileChooserNative.new("Select Image", self.win, Gtk.FileChooserAction.OPEN, "Open", "Cancel")
-        filter = Gtk.FileFilter()
-        filter.set_name("Images")
-        filter.add_mime_type("image/png")
-        filter.add_mime_type("image/jpeg")
-        filter.add_mime_type("image/webp")
-        dialog.add_filter(filter)
-        dialog.connect("response", self.on_file_selected)
-        dialog.show()
+        handlers.on_attach_clicked(self, btn)
 
     def on_file_selected(self, dialog, response):
-        self.btn_attach.set_sensitive(self.is_current_model_capable())
-        if response == Gtk.ResponseType.ACCEPT:
-            file = dialog.get_file()
-            path = file.get_path()
-            if path:
-                self.selected_image_path = path
-                self.update_thumbnail()
-        dialog.destroy()
+        handlers.on_file_selected(self, dialog, response)
 
     def update_thumbnail(self):
         return display.update_thumbnail(self)
@@ -200,28 +184,10 @@ class FlmChatApp(Adw.Application):
         return display.on_remove_thumbnail(self)
 
     def on_allow_switch_toggled(self, action, value):
-        new_state = not action.get_state().get_boolean()
-        
-        if new_state:
-            dialog = Adw.MessageDialog(
-                transient_for=self.win,
-                heading="Enable Model Switching?",
-                body="Enabling model switching allows you to change the active model at any time, which may reload the model server. Continue?"
-            )
-            dialog.add_response("cancel", "Cancel")
-            dialog.add_response("enable", "Enable")
-            dialog.set_response_appearance("enable", Adw.ResponseAppearance.SUGGESTED)
-            dialog.connect("response", lambda d, r: self.complete_switch_toggle(action, r))
-            dialog.present()
-        else:
-            self.complete_switch_toggle(action, "enable")
+        handlers.on_allow_switch_toggled(self, action, value)
 
     def complete_switch_toggle(self, action, response):
-        if response == "enable":
-            new_state = not action.get_state().get_boolean()
-            action.set_state(GLib.Variant.new_boolean(new_state))
-            self.allow_mid_chat_switch = new_state
-            self.update_model_ui()
+        handlers.complete_switch_toggle(self, action, response)
 
     def run_task(self, coro):
         task = asyncio.create_task(coro)
@@ -236,8 +202,17 @@ class FlmChatApp(Adw.Application):
         model_data = next((m for m in self.models if m["model"] == self.current_model), None)
         return model_data is not None and model_data.get("vlm", False)
 
+    def on_repair_clicked(self, btn):
+        if not self.current_model:
+            return
+        model_data = next((m for m in self.models if m['model'] == self.current_model), None)
+        if model_data:
+            models.confirm_download(self, model_data)
+
     def update_model_ui(self):
         models.update_model_ui(self)
+        # Handle repair button visibility/sensitivity
+        self.btn_repair.set_sensitive(self.current_model is not None and self.current_model != "none")
 
     def on_row_activated(self, listbox, row, popover):
         return models.on_row_activated(self, listbox, row, popover)
@@ -259,38 +234,6 @@ class FlmChatApp(Adw.Application):
 
     def download_model(self, model_name):
         return models.download_model(self, model_name)
-
-    def add_message(self, text: str, is_user: bool, image_path: Optional[str] = None):
-        return display.add_message(self, text, is_user, image_path)
-
-    def add_system_message(self, text: str):
-        return display.add_system_message(self, text)
-
-    def clear_status_labels(self):
-        return display.clear_status_labels(self)
-
-    def scroll_to_bottom(self):
-        return display.scroll_to_bottom(self)
-
-    def load_history_metadata(self):
-        self.sessions_metadata = []
-        try:
-            if not os.path.exists(self.history_dir):
-                return
-            files = [f for f in os.listdir(self.history_dir) if f.endswith(".json")]
-            files.sort(reverse=True)
-            for f in files:
-                path = os.path.join(self.history_dir, f)
-                with open(path, 'r') as jf:
-                    data = json.load(jf)
-                    self.sessions_metadata.append({
-                        "id": data.get("id", f.replace(".json", "")),
-                        "title": data.get("title", "Untitled Chat"),
-                        "model": data.get("model", "unknown")
-                    })
-        except Exception as e:
-            print(f"Error loading history: {e}")
-        self.update_history_ui()
 
     def update_history_ui(self):
         child = self.history_list.get_first_child()
@@ -341,96 +284,47 @@ class FlmChatApp(Adw.Application):
             row.set_child(main_box)
             self.history_list.append(row)
 
+    def execute_new_chat(self):
+        self.save_session()
+        self.execute_eject()
+        self.entry.get_buffer().set_text("")
+        display.chat_box_remove_all(self)
+        self.history = []
+        self.current_session_id = str(int(time.time()))
+        # Re-enable model selection and input
+        self.model_btn.set_sensitive(True)
+        self.entry.set_sensitive(True)
+        self.btn_send.set_sensitive(True)
+        self.update_model_ui()
+        display.add_system_message(self, "New session started.")
+
+    def execute_eject(self):
+        if self.server_process:
+            self.server_process.terminate()
+            self.server_process = None
+        self.current_model = None
+        self.entry.set_sensitive(False)
+        self.btn_send.set_sensitive(False)
+        self.model_btn.set_label("Select a model to start")
+        self.update_model_ui()
+
     def on_delete_clicked(self, btn, session_id):
-        dialog = Adw.MessageDialog(
-            transient_for=self.win,
-            heading="Delete Chat?",
-            body="Are you sure you want to permanently delete this conversation?"
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("delete", "Delete")
-        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-         
-        dialog.connect("response", self.on_delete_response, session_id)
-        dialog.present()
+        handlers.on_delete_clicked(self, btn, session_id)
 
     def on_delete_response(self, dialog, response, session_id):
-        if response == "delete":
-            path = os.path.join(self.history_dir, f"{session_id}.json")
-            if os.path.exists(path):
-                os.remove(path)
-            
-            self.sessions_metadata = [m for m in self.sessions_metadata if m["id"] != session_id]
-            
-            if self.current_session_id == session_id:
-                self.current_session_id = None
-                self.history = []
-                self.update_model_ui()
-                self.show_welcome_message()
-                self.add_system_message("Session deleted.")
-            
-            self.update_history_ui()
-        dialog.destroy()
+        handlers.on_delete_response(self, dialog, response, session_id)
 
     def on_clear_history(self, action, value):
-        dialog = Adw.MessageDialog(
-            transient_for=self.win,
-            heading="Clear All History?",
-            body="This will permanently delete all saved chat sessions. Continue?"
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("clear", "Clear All")
-        dialog.set_response_appearance("clear", Adw.ResponseAppearance.DESTRUCTIVE)
-        
-        dialog.connect("response", self.on_clear_history_response)
-        dialog.present()
+        handlers.on_clear_history(self, action, value)
 
     def on_clear_history_response(self, dialog, response):
-        if response == "clear":
-            try:
-                for f in os.listdir(self.history_dir):
-                    if f.endswith(".json"):
-                        os.remove(os.path.join(self.history_dir, f))
-                self.sessions_metadata = []
-                self.current_session_id = None
-                self.history = []
-                self.update_model_ui()
-                self.show_welcome_message()
-                self.add_system_message("History cleared.")
-                self.update_history_ui()
-            except Exception as e:
-                self.add_system_message(f"Error clearing history: {e}")
-        dialog.destroy()
+        handlers.on_clear_history_response(self, dialog, response)
 
     def on_history_row_activated(self, listbox, row):
-        index = row.get_index()
-        if index < len(self.sessions_metadata):
-            session_id = self.sessions_metadata[index]["id"]
-            
-            if self.current_session_id == session_id:
-                return
-            
-            if flm.is_model_in_memory(self.server_process) or self.server_process or self.current_model:
-                dialog = Adw.MessageDialog(
-                    transient_for=self.win,
-                    heading="Switch Chat?",
-                    body="Switching chats will unload the current model and clear the current chat session. Continue?"
-                )
-                dialog.add_response("cancel", "Cancel")
-                dialog.add_response("switch", "Switch")
-                dialog.set_response_appearance("switch", Adw.ResponseAppearance.DESTRUCTIVE)
-                dialog.connect("response", self.on_switch_dialog_response, session_id)
-                dialog.present()
-            else:
-                self.run_task(self.load_session(session_id))
+        handlers.on_history_row_activated(self, listbox, row)
 
     def on_switch_dialog_response(self, dialog, response, session_id):
-        if response == "switch":
-            display.cancel_ai_task(self)
-            
-            self.execute_eject()
-            self.run_task(self.load_session(session_id))
-        dialog.destroy()
+        handlers.on_switch_dialog_response(self, dialog, response, session_id)
 
     def save_session(self):
         sessions.save_session(self)
@@ -445,17 +339,17 @@ class FlmChatApp(Adw.Application):
                 self.history = data.get("messages", [])
                 self.current_model = data.get("model")
                 
-                self.chat_box_remove_all()
+                display.chat_box_remove_all(self)
                 
                 for msg in self.history:
-                    self.add_message(msg.get("content", ""), msg["role"] == "user", msg.get("image"))
+                    display.add_message(self, msg.get("content", ""), msg["role"] == "user", msg.get("image"))
                 
                 model_data = next((m for m in self.models if m['model'] == self.current_model), None)
                 
                 if self.current_model and self.current_model != "none":
                     if model_data and model_data.get('installed', False):
                         self.model_btn.set_label(self.current_model)
-                        self.add_system_message("Resources clearing... please wait.")
+                        display.add_system_message(self, "Resources clearing... please wait.")
                         await asyncio.sleep(1.5)
                         self.server_process = flm.start_flm_serve(self.current_model, self.server_process)
                         self.run_task(self.wait_for_server())
@@ -474,7 +368,7 @@ class FlmChatApp(Adw.Application):
                 
                 self.update_model_ui()
         except Exception as e:
-            self.add_system_message(f"Error loading session: {e}")
+            display.add_system_message(self, f"Error loading session: {e}")
 
     def on_missing_model_response(self, dialog, response):
         if response == "download":
@@ -482,7 +376,7 @@ class FlmChatApp(Adw.Application):
             if model_data:
                 models.confirm_download(self, model_data)
             else:
-                self.add_system_message("Error: Model not found in registry.")
+                display.add_system_message(self, "Error: Model not found in registry.")
         else:
             # Keep the model name selected but input will be disabled by update_model_ui
             self.update_model_ui()
@@ -509,96 +403,7 @@ class FlmChatApp(Adw.Application):
             self.execute_new_chat()
 
     def show_welcome_message(self):
-        self.chat_box_remove_all()
-        # Disable model selection on welcome screen
-        self.model_btn.set_sensitive(False)
-        self.model_btn.set_tooltip_text("Start a new chat to select a model.")
-        
-        # Disable interaction
-        self.entry.set_sensitive(False)
-        self.btn_send.set_sensitive(False)
-
-        welcome_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
-        welcome_box.set_valign(Gtk.Align.CENTER)
-        welcome_box.set_halign(Gtk.Align.CENTER)
-        welcome_box.set_margin_top(40)
-        welcome_box.set_margin_bottom(40)
-        
-        icon = Gtk.Image(icon_name="com.marley.FastFlowLM-gtk-symbolic")
-        # Fallback to document-new if custom icon not found in system
-        if not icon.get_paintable():
-            icon.set_from_icon_name("document-new-symbolic")
-        icon.set_pixel_size(96)
-        icon.add_css_class("dim-label")
-        welcome_box.append(icon)
-        
-        title = Gtk.Label(label="FastFlowLM")
-        title.add_css_class("title-1")
-        welcome_box.append(title)
-
-        info_text = (
-            "A modern, native interface for local LLMs.\n\n"
-            "• Optimized for GTK 4 & Libadwaita\n"
-            "• Advanced session & history management\n"
-            "• Real-time NPU-accelerated performance\n"
-            "• Local-first privacy and control"
-        )
-        
-        label = Gtk.Label(label=info_text)
-        label.set_justify(Gtk.Justification.CENTER)
-        label.add_css_class("dim-label")
-        welcome_box.append(label)
-        
-        btn_start = Gtk.Button(label="Start New Chat")
-        btn_start.add_css_class("pill")
-        btn_start.add_css_class("accent-btn")
-        btn_start.set_halign(Gtk.Align.CENTER)
-        btn_start.set_size_request(200, -1)
-        btn_start.connect("clicked", lambda b: self.on_new_chat(None))
-        welcome_box.append(btn_start)
-
-        credits_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        credits_box.set_halign(Gtk.Align.CENTER)
-        credits_box.set_margin_top(12)
-        
-        link_ui = Gtk.LinkButton(uri="https://github.com/marleylinux/FastFlowLM-gtk", label="FastFlowLM-gtk")
-        link_ui.set_halign(Gtk.Align.CENTER)
-        credits_box.append(link_ui)
-
-        link_engine = Gtk.LinkButton(uri="https://github.com/FastFlowLM/FastFlowLM", label="Powered by FastFlowLM")
-        link_engine.add_css_class("dim-label")
-        link_engine.set_halign(Gtk.Align.CENTER)
-        credits_box.append(link_engine)
-        
-        welcome_box.append(credits_box)
-        
-        # Center the box inside the chat area
-        self.chat_box.append(welcome_box)
-
-    def chat_box_remove_all(self):
-        return display.chat_box_remove_all(self)
-
-    def execute_new_chat(self):
-        self.save_session()
-        self.execute_eject()
-        self.entry.get_buffer().set_text("")
-        self.chat_box_remove_all()
-        self.history = []
-        self.current_session_id = str(int(time.time()))
-        # Re-enable model selection
-        self.model_btn.set_sensitive(True)
-        self.update_model_ui()
-        self.add_system_message("New session started.")
-
-    def execute_eject(self):
-        if self.server_process:
-            self.server_process.terminate()
-            self.server_process = None
-        self.current_model = None
-        self.entry.set_sensitive(False)
-        self.btn_send.set_sensitive(False)
-        self.model_btn.set_label("Select a model to start")
-        self.update_model_ui()
+        ui.show_welcome_message(self)
 
     def on_key_pressed(self, ctrl, keyval, keycode, state):
         return handlers.on_key_pressed(self, ctrl, keyval, keycode, state)
@@ -616,17 +421,17 @@ class FlmChatApp(Adw.Application):
     async def get_ai_response(self):
         try:
             if not self.current_model:
-                self.add_system_message("Please select a model first.")
+                display.add_system_message(self, "Please select a model first.")
                 return
             
             # Final safety check: is the server actually responsive?
             if not flm.is_server_ready(self.current_model):
-                self.add_system_message("Error: Model server is not responding. Try reloading the model.")
+                display.add_system_message(self, "Error: Model server is not responding. Try reloading the model.")
                 return
 
             thinking_box = display.add_spinner(self)
             
-            bubble = self.add_message("", is_user=False)
+            bubble = display.add_message(self, "", is_user=False)
             full_content = ""
             
             messages = []
@@ -664,8 +469,8 @@ class FlmChatApp(Adw.Application):
 
             stream = await network.get_ai_response(self, bubble, thinking_box, messages)
             if not stream:
-                self.add_system_message("Error: Connection lost or network endpoint failed.")
-                self.add_system_message("The model server may have crashed. Please check the model status.")
+                display.add_system_message(self, "Error: Connection lost or network endpoint failed.")
+                display.add_system_message(self, "The model server may have crashed. Please check the model status.")
                 if thinking_box.get_parent() == self.chat_box:
                     self.chat_box.remove(thinking_box)
                 
@@ -702,7 +507,7 @@ class FlmChatApp(Adw.Application):
                                 except Exception as e:
                                     print(f"Markup error: {e}")
                             GLib.idle_add(update_bubble)
-                    self.scroll_to_bottom()
+                    display.scroll_to_bottom(self)
                 except Exception as e:
                     print(f"Error parsing chunk: {e}")
             
@@ -711,7 +516,7 @@ class FlmChatApp(Adw.Application):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            self.add_system_message(f"Connection mapping error: {str(e)}")
+            display.add_system_message(self, f"Connection mapping error: {str(e)}")
         finally:
             self.is_sending = False
             GLib.idle_add(self.unlock_ui)

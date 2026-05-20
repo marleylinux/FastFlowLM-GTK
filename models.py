@@ -13,6 +13,7 @@ import shutil
 import json
 import flm
 import re
+import display
 from typing import Optional
 
 async def init_server(app) -> None:
@@ -31,20 +32,20 @@ async def wait_for_server(app) -> None:
         # Check if process died unexpectedly
         if app.server_process and app.server_process.poll() is not None:
             rc = app.server_process.poll()
-            app.add_system_message(f"Error: Server process exited with code {rc}.")
-            app.add_system_message("Check ~/.config/flm/server.log for details.")
+            display.add_system_message(app, f"Error: Server process exited with code {rc}.")
+            display.add_system_message(app, "Check ~/.config/flm/server.log for details.")
             update_model_ui(app)
             return
 
         if flm.is_server_ready(app.current_model):
-            app.add_system_message(f"{app.current_model} is ready.")
-            GLib.timeout_add_seconds(2, app.clear_status_labels)
+            display.add_system_message(app, f"{app.current_model} is ready.")
+            GLib.timeout_add_seconds(2, lambda: display.clear_status_labels(app))
             update_model_ui(app)
             return
         elif i % 5 == 0:
-            app.add_system_message(f"Waiting for {app.current_model} to initialize...")
+            display.add_system_message(app, f"Waiting for {app.current_model} to initialize...")
             
-    app.add_system_message("Error: Runtime server failed to stabilize.")
+    display.add_system_message(app, "Error: Runtime server failed to stabilize.")
     update_model_ui(app)
 
 def confirm_download(app, model_data: dict) -> None:
@@ -65,7 +66,7 @@ def confirm_download(app, model_data: dict) -> None:
 def on_download_response(app, dialog: Adw.MessageDialog, response: str, model_name: str) -> None:
     """Callback for download confirmation."""
     if response == "download":
-        app.add_system_message(f"Starting download: {model_name}")
+        display.add_system_message(app, f"Starting download: {model_name}")
         app.run_task(download_model(app, model_name))
     dialog.destroy()
 
@@ -113,14 +114,14 @@ async def download_model(app, model_name: str) -> None:
         
         await process.wait()
         if process.returncode == 0:
-            app.add_system_message(f"Successfully downloaded {model_name}")
-            app.add_system_message(f"Starting {model_name}...")
+            display.add_system_message(app, f"Successfully downloaded {model_name}")
+            display.add_system_message(app, f"Starting {model_name}...")
             app.server_process = flm.start_flm_serve(model_name, app.server_process)
             app.run_task(wait_for_server(app))
         else:
-            app.add_system_message(f"Failed to download {model_name}")
+            display.add_system_message(app, f"Failed to download {model_name}")
     except Exception as e:
-        app.add_system_message(f"Download error: {str(e)}")
+        display.add_system_message(app, f"Download error: {str(e)}")
     finally:
         app.chat_box.remove(progress)
         app.downloading_models.discard(model_name)
@@ -161,16 +162,17 @@ def update_model_ui(app) -> None:
         m_data = next((m for m in app.models if m['model'] == app.current_model), None)
         is_current_installed = m_data is not None and m_data.get('installed', False)
 
-    # Input is only allowed if we have a session, a model, it's installed, it's RUNNING, and not downloading
+    # Input is allowed if we have a session and model selected. 
+    # We remove the hard requirement for the server to be running (is_running)
+    # to prevent locking the UI on backend crashes.
     is_input_allowed = (app.current_session_id is not None and 
                         has_model and 
                         is_current_installed and 
-                        is_running and 
                         not is_downloading_any)
     
     app.entry.set_sensitive(is_input_allowed)
     app.btn_send.set_sensitive(is_input_allowed)
-    app.btn_attach.set_sensitive(app.is_current_model_capable() and is_current_installed and is_running and not is_downloading_any)
+    app.btn_attach.set_sensitive(app.is_current_model_capable() and is_current_installed and not is_downloading_any)
     
     if app.current_session_id is None:
         app.model_btn.set_sensitive(False)
@@ -294,7 +296,7 @@ def on_delete_response(app, dialog: Adw.MessageDialog, response: str, model_data
         if app.current_model == model_name:
             app.execute_eject()
 
-        app.add_system_message(f"Removing {model_name}...")
+        display.add_system_message(app, f"Removing {model_name}...")
         try:
             # 1. Standard CLI removal
             subprocess.run(["flm", "remove", model_name], check=True)
@@ -316,13 +318,13 @@ def on_delete_response(app, dialog: Adw.MessageDialog, response: str, model_data
                 if os.path.exists(target_path):
                     import shutil
                     shutil.rmtree(target_path)
-                    app.add_system_message(f"Purged model directory: {repo_folder}")
+                    display.add_system_message(app, f"Purged model directory: {repo_folder}")
 
-            app.add_system_message(f"Removed {model_name}")
+            display.add_system_message(app, f"Removed {model_name}")
         except subprocess.CalledProcessError:
-            app.add_system_message(f"Model files were missing. Cleaning up UI.")
+            display.add_system_message(app, f"Model files were missing. Cleaning up UI.")
         except Exception as e:
-            app.add_system_message(f"Deletion error: {str(e)}")
+            display.add_system_message(app, f"Deletion error: {str(e)}")
         
         # Force model list refresh
         app.models = flm.get_all_models()
@@ -348,7 +350,7 @@ def on_model_selected(app, btn: Optional[Gtk.Button], model_data: dict, popover:
     if not is_installed:
         confirm_download(app, model_data)
     else:
-        app.add_system_message(f"Starting process matrix for {model_name}...")
+        display.add_system_message(app, f"Starting process matrix for {model_name}...")
         app.server_process = flm.start_flm_serve(model_name, app.server_process)
         app.run_task(wait_for_server(app))
 
