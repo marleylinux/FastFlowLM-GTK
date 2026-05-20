@@ -1066,3 +1066,11 @@ class FlmChatApp(Adw.Application):
         if self.server_process:
             self.server_process.terminate()
         Adw.Application.do_shutdown(self)
+
+def main():
+    import sys
+    import asyncio
+    from gi.events import GLibEventLoopPolicy
+    asyncio.set_event_loop_policy(GLibEventLoopPolicy())
+    app = FlmChatApp()
+    app.run(sys.argv)

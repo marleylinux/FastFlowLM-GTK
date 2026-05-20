@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fastflowlm-gtk"
+version = "1.2.0"
+authors = [
+  { name="Marley", email="marley@example.com" },
+]
+description = "A minimalist, modern desktop interface for FastFlowLM."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "pygobject",
+    "psutil",
+]
+
+[project.scripts]
+fastflowlm-gtk = "fastflowlm_gtk.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
