@@ -1,0 +1,120 @@
+"""
+Module for chat display management.
+Handles UI rendering, message bubble construction, and visual status updates.
+"""
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk, GLib
+import utils
+from typing import Optional
+
+def add_message(app, text: str, is_user: bool, image_path: Optional[str] = None) -> Gtk.Label:
+    """
+    Renders a chat bubble to the main display area.
+
+    Args:
+        app: The FlmChatApp instance.
+        text: The message content to display.
+        is_user: Whether the message is from the user or the assistant.
+        image_path: Optional path to an image attachment.
+
+    Returns:
+        The Gtk.Label containing the rendered text.
+    """
+    bubble_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+    bubble_box.add_css_class("user-bubble" if is_user else "assistant-bubble")
+    
+    if image_path:
+        img = Gtk.Image.new_from_file(image_path)
+        img.set_pixel_size(200)
+        bubble_box.append(img)
+        
+    bubble = Gtk.Label()
+    bubble.set_wrap(True)
+    bubble.set_selectable(True)
+    bubble.set_xalign(0)
+    bubble.set_use_markup(True)
+    
+    if is_user:
+        bubble.set_text(text)
+    else:
+        bubble.set_markup(utils.markdown_to_pango(text))
+    
+    bubble_box.append(bubble)
+    
+    align = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    if is_user:
+        align.append(Gtk.Box(hexpand=True))
+        align.append(bubble_box)
+    else:
+        align.append(bubble_box)
+        align.append(Gtk.Box(hexpand=True))
+        
+    app.chat_box.append(align)
+    GLib.idle_add(scroll_to_bottom, app)
+    return bubble
+
+def add_system_message(app, text: str) -> None:
+    """Adds a dimmed system status message to the chat view."""
+    label = Gtk.Label(label=text)
+    label.add_css_class("dim-label")
+    label.set_margin_top(10)
+    label.set_margin_bottom(10)
+    app.chat_box.append(label)
+    app.status_labels.append(label)
+    GLib.idle_add(scroll_to_bottom, app)
+
+def clear_status_labels(app) -> bool:
+    """Removes all transient system messages from the view."""
+    for label in app.status_labels:
+        if label.get_parent() == app.chat_box:
+            app.chat_box.remove(label)
+    app.status_labels = []
+    return False
+
+def scroll_to_bottom(app) -> None:
+    """Scrolls the chat view to the latest entry."""
+    adj = app.scrolled.get_vadjustment()
+    adj.set_value(adj.get_upper() - adj.get_page_size())
+
+def chat_box_remove_all(app) -> None:
+    """Clears all messages from the chat box."""
+    child = app.chat_box.get_first_child()
+    while child:
+        app.chat_box.remove(child)
+        child = app.chat_box.get_first_child()
+
+def cancel_ai_task(app) -> None:
+    """Cancels the current AI response task and clears 'Thinking' indicators."""
+    if app.ai_task and not app.ai_task.done():
+        app.ai_task.cancel()
+    
+    children = app.chat_box.get_first_child()
+    while children:
+        next_child = children.get_next_sibling()
+        if isinstance(children, Gtk.Label) and children.get_text() == "Thinking...":
+            app.chat_box.remove(children)
+        children = next_child
+
+    app.is_sending = False
+
+def update_thumbnail(app) -> None:
+    """Refreshes the image thumbnail preview area."""
+    child = app.thumb_box.get_first_child()
+    while child:
+        app.thumb_box.remove(child)
+        child = app.thumb_box.get_first_child()
+
+    if app.selected_image_path:
+        img = Gtk.Image.new_from_file(app.selected_image_path)
+        img.set_pixel_size(100)
+        img.set_hexpand(True)
+        app.thumb_box.append(img)
+        btn = Gtk.Button(icon_name="window-close-symbolic")
+        btn.connect("clicked", lambda b: on_remove_thumbnail(app))
+        app.thumb_box.append(btn)
+
+def on_remove_thumbnail(app) -> None:
+    """Removes the selected image attachment."""
+    app.selected_image_path = None
+    update_thumbnail(app)

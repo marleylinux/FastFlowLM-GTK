@@ -9,9 +9,6 @@ import gi
 import logging
 from typing import Optional, List, Dict
 
-# Configure basic logging
-logging.basicConfig(level=logging.ERROR, format='%(levelname)s: %(message)s')
-
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Soup", "3.0")
@@ -19,31 +16,43 @@ from gi.repository import Gtk, Gdk, Gio, GLib, Adw, Soup
 
 import utils
 import flm
+import ui
+import sessions
+import network
+import theme
+import handlers
+import models
+import display
 
 APP_ID = "com.marley.FastFlowLM-gtk"
 DEFAULT_PORT = 52625
 BASE_URL = f"http://127.0.0.1:{DEFAULT_PORT}/v1"
 
 class FlmChatApp(Adw.Application):
+    """
+    Main application controller for FastFlowLM-gtk.
+    Manages application state, lifecycle, and coordinates between UI/data modules.
+    """
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
         self.server_process: Optional[subprocess.Popen] = None
         self.css_provider = Gtk.CssProvider()
-        self.ai_task = None
-        self.theme_color = self.load_theme_color()
-        self.models = flm.get_all_models()
-        self.current_model = None
+        self.ai_task: Optional[asyncio.Task] = None
+        self.theme_color: str = theme.load_theme_color()
+        self.models: List[Dict] = flm.get_all_models()
+        self.current_model: Optional[str] = None
+        self.utils = utils
 
         self.downloading_models = set()
         self.tasks = set()
         self.session = Soup.Session()
         self.history = []
         self.status_labels = []
-        self.selected_image_path = None
+        self.selected_image_path: Optional[str] = None
         
         self.history_dir = os.path.expanduser("~/.config/flm/history")
         os.makedirs(self.history_dir, exist_ok=True)
-        self.current_session_id = None
+        self.current_session_id: Optional[str] = None
         self.sessions_metadata = []
         self.allow_mid_chat_switch = False
         self.is_sending = False
@@ -51,7 +60,8 @@ class FlmChatApp(Adw.Application):
         self.lock_fd = None
         self.acquire_system_lock()
 
-    def acquire_system_lock(self):
+    def acquire_system_lock(self) -> None:
+        """Acquires a file lock to manage system model resource usage."""
         lock_path = os.path.expanduser("~/.config/flm/model_ram.lock")
         try:
             self.lock_fd = open(lock_path, 'w')
@@ -59,7 +69,8 @@ class FlmChatApp(Adw.Application):
         except (BlockingIOError, IOError):
             print("Warning: Another instance is managing the system models.")
 
-    def do_activate(self):
+    def do_activate(self) -> None:
+        """Initializes the main window and UI components."""
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
         
         # Populate models first before any UI logic
@@ -82,121 +93,24 @@ class FlmChatApp(Adw.Application):
         self.win.set_title("FastFlowLM-gtk")
         
         self.css_provider.load_from_data(utils.CSS.encode())
-        self.apply_theme(self.theme_color)
+        theme.apply_theme(self, self.theme_color)
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(),
             self.css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
+
         self.split_view = Adw.OverlaySplitView()
         self.split_view.set_sidebar_width_fraction(0.3)
         self.split_view.set_min_sidebar_width(200)
         self.win.set_content(self.split_view)
 
-        self.sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.sidebar_box.add_css_class("sidebar-list")
-        self.sidebar_header = Adw.HeaderBar()
-        self.sidebar_header.set_show_end_title_buttons(False)
-        self.sidebar_box.append(self.sidebar_header)
-        
-        self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_placeholder_text("Search chats...")
-        self.search_entry.connect("search-changed", self.on_search_changed)
-        self.sidebar_box.append(self.search_entry)
-
-        self.history_list = Gtk.ListBox()
-        self.history_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self.history_list.connect("row-activated", self.on_history_row_activated)
-        
-        self.sidebar_scrolled = Gtk.ScrolledWindow()
-        self.sidebar_scrolled.set_vexpand(True)
-        self.sidebar_scrolled.set_child(self.history_list)
-        self.sidebar_box.append(self.sidebar_scrolled)
+        self.sidebar_box = ui.build_sidebar(self)
         self.split_view.set_sidebar(self.sidebar_box)
 
-        self.main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.main_box = ui.build_main_content(self)
         self.split_view.set_content(self.main_box)
-
-        self.header = Adw.HeaderBar()
-        self.main_box.append(self.header)
-
-        self.btn_sidebar = Gtk.ToggleButton(icon_name="sidebar-show-symbolic")
-        self.btn_sidebar.set_tooltip_text("Toggle History")
-        self.btn_sidebar.set_active(True)
-        self.btn_sidebar.connect("toggled", lambda b: self.split_view.set_show_sidebar(b.get_active()))
-        self.header.pack_start(self.btn_sidebar)
-
-        self.btn_new = Gtk.Button(icon_name="document-new-symbolic")
-        self.btn_new.set_tooltip_text("New Chat")
-        self.btn_new.connect("clicked", self.on_new_chat)
-        self.header.pack_start(self.btn_new)
-        
-        self.options_btn = Gtk.MenuButton(icon_name="view-more-symbolic")
-        self.options_btn.set_tooltip_text("Options")
-        self.header.pack_start(self.options_btn)
-        
-        self.options_menu = Gio.Menu()
-        self.options_menu.append("Choose Theme Color", "app.choose_color")
-        self.options_menu.append("Allow Switching Model mid-chat", "app.allow_switch")
-        self.options_menu.append("Clear All History", "app.clear_history")
-        self.options_btn.set_menu_model(self.options_menu)
-
-        self.model_btn = Gtk.MenuButton()
-        self.model_btn.set_label("Select a model to start")
-        self.header.set_title_widget(self.model_btn)
-        
-        self.scrolled = Gtk.ScrolledWindow()
-        self.scrolled.set_vexpand(True)
-        self.scrolled.add_css_class("chat-scroll")
-        self.chat_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.chat_box.set_margin_top(10)
-        self.chat_box.set_margin_bottom(10)
-        
-        self.scrolled.set_child(self.chat_box)
-        self.main_box.append(self.scrolled)
-
-        self.thumb_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        self.thumb_box.set_hexpand(True)
-        self.thumb_box.set_margin_start(10)
-        self.thumb_box.set_margin_end(10)
-        self.thumb_box.set_margin_top(5)
-        self.thumb_box.set_margin_bottom(5)
-        self.main_box.append(self.thumb_box)
-
-        self.input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        self.input_box.add_css_class("input-area")
-        
-        self.input_scroll = Gtk.ScrolledWindow()
-        self.input_scroll.set_hexpand(True)
-        self.input_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.input_scroll.set_min_content_height(40)
-        self.input_scroll.set_max_content_height(150)
-        self.input_scroll.add_css_class("input-view")
-        
-        self.entry = Gtk.TextView()
-        self.entry.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.entry.set_accepts_tab(False)
-        self.input_scroll.set_child(self.entry)
-        
-        key_ctrl = Gtk.EventControllerKey()
-        key_ctrl.connect("key-pressed", self.on_key_pressed)
-        self.entry.add_controller(key_ctrl)
-        
-        self.input_box.append(self.input_scroll)
-        
-        self.btn_send = Gtk.Button(icon_name="mail-send-symbolic")
-        self.btn_send.connect("clicked", self.on_send)
-        self.btn_send.set_valign(Gtk.Align.END)
-        
-        self.btn_attach = Gtk.Button(icon_name="paperclip-symbolic")
-        self.btn_attach.connect("clicked", self.on_attach_clicked)
-        self.btn_attach.set_valign(Gtk.Align.END)
-        
-        self.input_box.append(self.btn_attach)
-        self.input_box.append(self.btn_send)
-        
-        self.main_box.append(self.input_box)
 
         # Ensure initial state is set before the window appears
         self.update_model_ui()
@@ -205,7 +119,7 @@ class FlmChatApp(Adw.Application):
         self.win.present()
         
         # Apply theme after window is present
-        self.apply_theme(self.theme_color)
+        theme.apply_theme(self, self.theme_color)
         
         GLib.idle_add(self.load_history_metadata)
         GLib.idle_add(lambda: self.run_task(self.init_server()))
@@ -333,240 +247,37 @@ class FlmChatApp(Adw.Application):
         return model_data is not None and model_data.get("vlm", False)
 
     def update_model_ui(self):
-        if not self.models:
-            self.models = flm.get_all_models()
-        
-        # Check if any model is installed
-        any_installed = any(m.get('installed', False) for m in self.models)
-        
-        if self.current_model:
-            label_text = self.current_model
-            model_data = next((m for m in self.models if m['model'] == self.current_model), None)
-            if model_data and model_data.get('vlm', False):
-                label_text = "👁 " + label_text
-            self.model_btn.set_label(label_text)
-        else:
-            self.model_btn.set_label("Select a model to start")
-        
-        # Update buttons
-        any_installed = any(m.get('installed', False) for m in self.models)
-        if not any_installed:
-            self.btn_new.set_sensitive(False)
-            self.btn_new.set_tooltip_text("Install a model to start a new chat.")
-        else:
-            self.btn_new.set_sensitive(True)
-            self.btn_new.set_tooltip_text("New Chat")
-
-        is_running = flm.is_model_in_memory(self.server_process)
-        ram_ok = flm.has_sufficient_ram()
-        
-        self.btn_attach.set_sensitive(self.is_current_model_capable())
-        
-        # Disable entry until a chat is started
-        self.entry.set_sensitive(self.current_session_id is not None)
-        self.btn_send.set_sensitive(self.current_session_id is not None)
-        
-        # Disable model selection on welcome screen (no active session)
-        if self.current_session_id is None:
-            self.model_btn.set_sensitive(False)
-            self.model_btn.set_tooltip_text("Start a new chat to select a model.")
-        elif not self.allow_mid_chat_switch and self.history:
-            self.model_btn.set_sensitive(False)
-            self.model_btn.set_tooltip_text("Model locked in memory during active conversation.")
-        elif not ram_ok and not is_running:
-            self.model_btn.set_sensitive(False)
-            self.model_btn.set_tooltip_text("System RAM is critically low. Free memory to load models.")
-        else:
-            self.model_btn.set_sensitive(True)
-            self.model_btn.set_tooltip_text("Select Model")
-
-
-        popover = Gtk.Popover()
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_min_content_height(350)
-        scrolled.set_min_content_width(300)
-        
-        listbox = Gtk.ListBox()
-        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        
-        for m in self.models:
-            model_name = m['model']
-            is_installed = m.get('installed', False)
-            is_downloading = model_name in self.downloading_models
-            
-            row = Gtk.ListBoxRow()
-            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            box.set_margin_start(10)
-            box.set_margin_end(10)
-            box.set_margin_top(5)
-            box.set_margin_bottom(5)
-
-            label_text = f"⬇ Downloading {model_name}..." if is_downloading else model_name
-            if m.get('vlm', False):
-                label_text = "👁 " + label_text
-            label = Gtk.Label(label=label_text)
-            label.set_xalign(0)
-             
-            if is_downloading:
-                row.set_sensitive(False)
-            elif not is_installed:
-                label.add_css_class("uninstalled-model-label")
-            else:
-                label.add_css_class("installed-model-label")
-             
-            box.append(label)
-            row.set_child(box)
-            listbox.append(row)
-            
-        listbox.connect("row-activated", self.on_row_activated, popover)
-        
-        scrolled.set_child(listbox)
-        popover.set_child(scrolled)
-        self.model_btn.set_popover(popover)
+        models.update_model_ui(self)
 
     def on_row_activated(self, listbox, row, popover):
-        index = row.get_index()
-        if index < len(self.models):
-            self.on_model_selected(None, self.models[index], popover)
+        return models.on_row_activated(self, listbox, row, popover)
 
     def on_model_selected(self, btn, model_data, popover):
-        model_name = model_data['model']
-        is_installed = model_data.get('installed', False)
-        popover.popdown()
+        return models.on_model_selected(self, btn, model_data, popover)
 
-        if not is_installed:
-            self.confirm_download(model_data)
-            return
+    def init_server(self):
+        return models.init_server(self)
 
-        self.current_model = model_name
-        self.model_btn.set_label(model_name)
-        
-        if self.history:
-            self.save_session()
-        
-        self.add_system_message(f"Starting process matrix for {model_name}...")
-        self.server_process = flm.start_flm_serve(model_name, self.server_process)
-        self.run_task(self.wait_for_server())
-
-    async def wait_for_server(self):
-        for _ in range(25):
-            await asyncio.sleep(1)
-            if flm.is_model_in_memory(self.server_process):
-                self.add_system_message("Model active in host process space.")
-                GLib.timeout_add_seconds(2, self.clear_status_labels)
-                return
-        self.add_system_message("Error: Runtime server failed to build on subsystem architecture.")
+    def wait_for_server(self):
+        return models.wait_for_server(self)
 
     def confirm_download(self, model_data):
-        model_name = model_data['model']
-        dialog = Adw.MessageDialog(
-            transient_for=self.win,
-            heading="Download Model?",
-            body=f"Do you want to download {model_name}?"
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("download", "Download")
-        dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
-        
-        dialog.connect("response", self.on_download_response, model_name)
-        dialog.present()
+        return models.confirm_download(self, model_data)
 
     def on_download_response(self, dialog, response, model_name):
-        if response == "download":
-            self.add_system_message(f"Starting download: {model_name}")
-            self.run_task(self.download_model(model_name))
+        return models.on_download_response(self, dialog, response, model_name)
 
-    async def download_model(self, model_name):
-        self.downloading_models.add(model_name)
-        
-        # Add progress bar to the chat box
-        progress = Gtk.ProgressBar()
-        progress.set_fraction(0.0)
-        progress.set_show_text(True)
-        progress.set_margin_top(10)
-        progress.set_margin_bottom(10)
-        # Apply accent color to progress bar via CSS
-        progress.add_css_class("suggested-action")
-        
-        self.chat_box.append(progress)
-        self.update_model_ui()
-        
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "flm", "pull", model_name,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT
-            )
-            
-            # Simulate progress for now since flm pull might not provide easy chunks
-            # A more robust way would be parsing the stdout
-            for i in range(1, 101):
-                await asyncio.sleep(0.1)
-                progress.set_fraction(i / 100.0)
-                progress.set_text(f"Downloading {model_name}: {i}%")
-            
-            await process.wait()
-            if process.returncode == 0:
-                self.add_system_message(f"Successfully downloaded {model_name}")
-            else:
-                self.add_system_message(f"Failed to download {model_name}")
-        except Exception as e:
-            self.add_system_message(f"Download error: {str(e)}")
-        finally:
-            self.chat_box.remove(progress)
-            self.downloading_models.discard(model_name)
-            self.models = flm.get_all_models()
-            self.update_model_ui()
+    def download_model(self, model_name):
+        return models.download_model(self, model_name)
 
     def add_message(self, text: str, is_user: bool, image_path: Optional[str] = None):
-        bubble_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        bubble_box.add_css_class("user-bubble" if is_user else "assistant-bubble")
-        
-        if image_path:
-            img = Gtk.Image.new_from_file(image_path)
-            img.set_pixel_size(200)
-            bubble_box.append(img)
-            
-        bubble = Gtk.Label()
-        bubble.set_wrap(True)
-        bubble.set_selectable(True)
-        bubble.set_xalign(0)
-        bubble.set_use_markup(True)
-        
-        if is_user:
-            bubble.set_text(text)
-        else:
-            bubble.set_markup(utils.markdown_to_pango(text))
-        
-        bubble_box.append(bubble)
-        
-        align = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        if is_user:
-            align.append(Gtk.Box(hexpand=True))
-            align.append(bubble_box)
-        else:
-            align.append(bubble_box)
-            align.append(Gtk.Box(hexpand=True))
-            
-        self.chat_box.append(align)
-        GLib.idle_add(self.scroll_to_bottom)
-        return bubble
+        return display.add_message(self, text, is_user, image_path)
 
     def add_system_message(self, text: str):
-        label = Gtk.Label(label=text)
-        label.add_css_class("dim-label")
-        label.set_margin_top(10)
-        label.set_margin_bottom(10)
-        self.chat_box.append(label)
-        self.status_labels.append(label)
-        GLib.idle_add(self.scroll_to_bottom)
+        return display.add_system_message(self, text)
 
     def clear_status_labels(self):
-        for label in self.status_labels:
-            if label.get_parent() == self.chat_box:
-                self.chat_box.remove(label)
-        self.status_labels = []
-        return False
+        return display.clear_status_labels(self)
 
     def scroll_to_bottom(self):
         adj = self.scrolled.get_vadjustment()
@@ -733,42 +444,7 @@ class FlmChatApp(Adw.Application):
         dialog.destroy()
 
     def save_session(self):
-        if not self.history:
-            return
-            
-        if not self.current_session_id:
-            import time
-            self.current_session_id = str(int(time.time()))
-        
-        title = "Untitled Chat"
-        for msg in self.history:
-            if msg["role"] == "user":
-                title = msg["content"][:40].replace("\n", " ") + (len(msg["content"]) > 40 and "..." or "")
-                break
-        
-        data = {
-            "id": self.current_session_id,
-            "title": title,
-            "model": self.current_model or "none",
-            "messages": self.history
-        }
-        
-        path = os.path.join(self.history_dir, f"{self.current_session_id}.json")
-        try:
-            with open(path, 'w') as f:
-                json.dump(data, f)
-            
-            meta = next((m for m in self.sessions_metadata if m["id"] == self.current_session_id), None)
-            if meta:
-                if meta["title"] != title or meta["model"] != data["model"]:
-                    meta["title"] = title
-                    meta["model"] = data["model"]
-                    self.update_history_ui()
-            else:
-                self.sessions_metadata.insert(0, {"id": data["id"], "title": data["title"], "model": data["model"]})
-                self.update_history_ui()
-        except Exception as e:
-            logging.error(f"Error saving session: {e}")
+        sessions.save_session(self)
 
     async def load_session(self, session_id):
         path = os.path.join(self.history_dir, f"{session_id}.json")
@@ -862,6 +538,12 @@ class FlmChatApp(Adw.Application):
         
         self.chat_box.append(outer_box)
 
+    def chat_box_remove_all(self):
+        child = self.chat_box.get_first_child()
+        while child:
+            self.chat_box.remove(child)
+            child = self.chat_box.get_first_child()
+
     def execute_new_chat(self):
         self.save_session()
         self.entry.get_buffer().set_text("")
@@ -878,62 +560,10 @@ class FlmChatApp(Adw.Application):
         self.update_model_ui()
 
     def on_key_pressed(self, ctrl, keyval, keycode, state):
-        if keyval == Gdk.KEY_Return:
-            if not (state & Gdk.ModifierType.SHIFT_MASK):
-                self.on_send(None)
-                return True
-        return False
+        return handlers.on_key_pressed(self, ctrl, keyval, keycode, state)
 
-    def chat_box_remove_all(self):
-        child = self.chat_box.get_first_child()
-        while child:
-            self.chat_box.remove(child)
-            child = self.chat_box.get_first_child()
-
-    def cancel_ai_task(self):
-        if self.ai_task and not self.ai_task.done():
-            self.ai_task.cancel()
-        
-        # Remove any lingering "Thinking..." labels
-        children = self.chat_box.get_first_child()
-        while children:
-            next_child = children.get_next_sibling()
-            if isinstance(children, Gtk.Label) and children.get_text() == "Thinking...":
-                self.chat_box.remove(children)
-            children = next_child
-
-        self.is_sending = False
-        
     def on_send(self, widget):
-        if self.is_sending:
-            return
-            
-        buffer = self.entry.get_buffer()
-        start, end = buffer.get_bounds()
-        text = buffer.get_text(start, end, True).strip()
-        
-        if not text and not self.selected_image_path:
-            return
-            
-        self.is_sending = True
-        
-        # Immediate UI lock
-        self.input_box.set_sensitive(False)
-        self.entry.set_editable(False)
-            
-        buffer.set_text("")
-        self.add_message(text, is_user=True, image_path=self.selected_image_path)
-        self.history.append({"role": "user", "content": text, "image": self.selected_image_path})
-        
-        self.selected_image_path = None
-        self.update_thumbnail()
-        
-        self.save_session()
-        self.update_model_ui()
-        self.ai_task = asyncio.create_task(self.get_ai_response())
-        self.tasks.add(self.ai_task)
-        
-        GLib.idle_add(self.scroll_to_bottom)
+        handlers.on_send(self, widget)
 
     async def get_ai_response(self):
         try:
@@ -961,16 +591,7 @@ class FlmChatApp(Adw.Application):
                         print(f"Error encoding image: {e}")
                 messages.append({"role": msg["role"], "content": content})
 
-            payload = {
-                "model": self.current_model,
-                "messages": messages,
-                "stream": True
-            }
-            
-            msg = Soup.Message.new("POST", f"{BASE_URL}/chat/completions")
-            msg.set_request_body_from_bytes("application/json", GLib.Bytes.new(json.dumps(payload).encode()))
-            
-            stream = await self.session.send_async(msg, GLib.PRIORITY_DEFAULT, None)
+            stream = await network.get_ai_response(self, bubble, thinking_label, messages)
             if not stream:
                 self.add_system_message("Error: Network endpoint request failed.")
                 return
@@ -1028,32 +649,11 @@ class FlmChatApp(Adw.Application):
         dialog = Gtk.ColorDialog.new()
         dialog.choose_rgba(self.win, None, None, self.on_color_picked, None)
 
-    def load_theme_color(self):
-        config_path = os.path.expanduser("~/.config/flm/theme.json")
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, "r") as f:
-                    return json.load(f).get("accent_color", "#3584e4")
-            except: pass
-        return "#3584e4"
-
-    def apply_theme(self, hex_color):
-        full_css = f"""
-        @define-color accent_bg_color {hex_color};
-        .user-bubble {{ background-color: {hex_color}; }}
-        .sidebar-title {{ color: #ffffff; }}
-        .sidebar-subtitle {{ color: #ffffff; }}
-        row:selected {{ background-color: {hex_color}; }}
-        button.suggested-action {{ background-color: {hex_color}; }}
-        {utils.CSS}
-        """
-        self.css_provider.load_from_data(full_css.encode())
-
     def on_color_picked(self, dialog, result, data):
         try:
             color = dialog.choose_rgba_finish(result)
             hex_color = "#{:02x}{:02x}{:02x}".format(int(color.red * 255), int(color.green * 255), int(color.blue * 255))
-            self.apply_theme(hex_color)
+            theme.apply_theme(self, hex_color)
             
             config_path = os.path.expanduser("~/.config/flm/theme.json")
             with open(config_path, "w") as f:

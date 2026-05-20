@@ -1,0 +1,90 @@
+"""
+Module for UI components and structure.
+Handles initial widget layout construction.
+"""
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, Adw
+
+def build_sidebar(app) -> Gtk.Box:
+    """Builds the sidebar UI, including history and search."""
+    sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    sidebar_box.add_css_class("sidebar-list")
+    sidebar_header = Adw.HeaderBar()
+    sidebar_header.set_show_end_title_buttons(False)
+    sidebar_box.append(sidebar_header)
+    
+    app.search_entry = Gtk.SearchEntry()
+    app.search_entry.set_placeholder_text("Search chats...")
+    app.search_entry.connect("search-changed", app.on_search_changed)
+    sidebar_box.append(app.search_entry)
+
+    app.history_list = Gtk.ListBox()
+    app.history_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+    app.history_list.connect("row-activated", app.on_history_row_activated)
+    
+    sidebar_scrolled = Gtk.ScrolledWindow()
+    sidebar_scrolled.set_vexpand(True)
+    sidebar_scrolled.set_child(app.history_list)
+    sidebar_box.append(sidebar_scrolled)
+    return sidebar_box
+
+def build_main_content(app) -> Gtk.Box:
+    """Builds the main chat interface structure."""
+    main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    app.header = Adw.HeaderBar()
+    main_box.append(app.header)
+    
+    app.btn_sidebar = Gtk.ToggleButton(icon_name="sidebar-show-symbolic")
+    app.btn_sidebar.set_active(True)
+    app.btn_sidebar.connect("toggled", lambda b: app.split_view.set_show_sidebar(b.get_active()))
+    app.header.pack_start(app.btn_sidebar)
+
+    app.btn_new = Gtk.Button(icon_name="document-new-symbolic")
+    app.btn_new.connect("clicked", app.on_new_chat)
+    app.header.pack_start(app.btn_new)
+    
+    app.options_btn = Gtk.MenuButton(icon_name="view-more-symbolic")
+    app.header.pack_start(app.options_btn)
+
+    app.model_btn = Gtk.MenuButton()
+    app.header.set_title_widget(app.model_btn)
+    
+    app.scrolled = Gtk.ScrolledWindow()
+    app.scrolled.set_vexpand(True)
+    app.scrolled.add_css_class("chat-scroll")
+    app.chat_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    app.chat_box.set_margin_top(10)
+    app.chat_box.set_margin_bottom(10)
+    
+    app.scrolled.set_child(app.chat_box)
+    main_box.append(app.scrolled)
+
+    app.thumb_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+    main_box.append(app.thumb_box)
+
+    app.input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+    app.input_box.add_css_class("input-area")
+    
+    app.input_scroll = Gtk.ScrolledWindow()
+    app.input_scroll.set_hexpand(True)
+    app.input_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    app.input_scroll.set_min_content_height(40)
+    app.input_scroll.set_max_content_height(150)
+    app.input_scroll.add_css_class("input-view")
+    
+    app.entry = Gtk.TextView()
+    app.input_scroll.set_child(app.entry)
+    app.input_box.append(app.input_scroll)
+    
+    app.btn_send = Gtk.Button(icon_name="mail-send-symbolic")
+    app.btn_send.connect("clicked", app.on_send)
+    app.input_box.append(app.btn_send)
+    
+    app.btn_attach = Gtk.Button(icon_name="paperclip-symbolic")
+    app.btn_attach.connect("clicked", app.on_attach_clicked)
+    app.input_box.append(app.btn_attach)
+    
+    main_box.append(app.input_box)
+    return main_box
