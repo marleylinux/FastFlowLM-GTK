@@ -17,9 +17,10 @@ def build_sidebar(app) -> Gtk.Box:
     sidebar_box.append(sidebar_header)
     
     search_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-    search_box.set_margin_start(12)
-    search_box.set_margin_end(12)
-    search_box.set_margin_bottom(12)
+    search_box.set_margin_start(16)
+    search_box.set_margin_end(16)
+    search_box.set_margin_bottom(16)
+    search_box.set_margin_top(8)
     
     app.search_entry = Gtk.SearchEntry()
     app.search_entry.set_placeholder_text("Search chats...")
@@ -30,6 +31,7 @@ def build_sidebar(app) -> Gtk.Box:
     app.history_list = Gtk.ListBox()
     app.history_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
     app.history_list.add_css_class("navigation-sidebar")
+    app.history_list.add_css_class("boxed-list")
     app.history_list.connect("row-activated", app.on_history_row_activated)
     
     sidebar_scrolled = Gtk.ScrolledWindow()
@@ -50,7 +52,6 @@ def build_main_content(app) -> Gtk.Box:
     app.header.pack_start(app.btn_sidebar)
 
     app.btn_new = Gtk.Button(icon_name="document-new-symbolic")
-    app.btn_new.add_css_class("accent-btn")
     app.btn_new.connect("clicked", app.on_new_chat)
     app.header.pack_start(app.btn_new)
     

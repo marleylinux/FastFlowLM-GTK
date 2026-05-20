@@ -21,10 +21,41 @@ CSS = """
     border: 1px solid alpha(@window_fg_color, 0.05);
 }
 
+/* Modern Headerbar and Menus */
+headerbar {
+    padding: 6px 12px;
+    background-color: transparent;
+    border-bottom: 1px solid alpha(@window_fg_color, 0.08);
+}
+
+popover contents {
+    padding: 8px;
+    border-radius: 20px;
+    background-color: @window_bg_color;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+}
+
+popover list {
+    background-color: transparent;
+}
+
+popover row {
+    padding: 8px 12px;
+    border-radius: 12px;
+    margin: 2px 0;
+}
+
+popover row:hover {
+    background-color: alpha(@window_fg_color, 0.05);
+}
+
+/* Base styles for all elements */
 .accent-btn {
     background-color: @accent_bg_color;
     color: @accent_fg_color;
+    border-radius: 12px;
     border: none;
+    padding: 6px 16px;
 }
 
 .accent-btn:hover {
@@ -33,6 +64,16 @@ CSS = """
 
 .accent-btn:active {
     background-color: shade(@accent_bg_color, 0.9);
+}
+
+/* Force dialog suggested buttons to use our theme accent */
+button.suggested-action {
+    background-color: @accent_bg_color;
+    color: @accent_fg_color;
+}
+
+button.suggested-action:hover {
+    background-color: shade(@accent_bg_color, 1.1);
 }
 
 .rounded-image {
@@ -120,6 +161,26 @@ row:hover .delete-btn {
 .delete-btn:hover {
     opacity: 1.0 !important;
     color: @error_color;
+}
+
+.dim-label {
+    opacity: 0.6;
+    font-size: 0.9em;
+    font-style: italic;
+}
+
+.system-status {
+    font-weight: 500;
+    font-size: 0.9em;
+    padding: 8px;
+}
+
+.code-block {
+    font-family: 'monospace';
+    background-color: @view_bg_color;
+    border: 1px solid alpha(@window_fg_color, 0.1);
+    border-radius: 8px;
+    padding: 8px;
 }
 """
 

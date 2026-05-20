@@ -61,14 +61,26 @@ def copy_to_clipboard(text: str) -> None:
     clipboard.set(text)
 
 def add_system_message(app, text: str) -> None:
-    """Adds a dimmed system status message to the chat view."""
+    """Adds a system status message to the chat view."""
     label = Gtk.Label(label=text)
-    label.add_css_class("dim-label")
+    label.add_css_class("system-status")
     label.set_margin_top(10)
     label.set_margin_bottom(10)
     app.chat_box.append(label)
     app.status_labels.append(label)
     GLib.idle_add(scroll_to_bottom, app)
+
+def add_spinner(app) -> Gtk.Spinner:
+    """Adds a spinner for loading/thinking states."""
+    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+    box.set_margin_top(10)
+    box.set_margin_bottom(10)
+    spinner = Gtk.Spinner()
+    spinner.set_spinning(True)
+    box.append(spinner)
+    box.append(Gtk.Label(label="Thinking..."))
+    app.chat_box.append(box)
+    return box
 
 def clear_status_labels(app) -> bool:
     """Removes all transient system messages from the view."""

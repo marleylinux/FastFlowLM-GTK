@@ -557,9 +557,20 @@ class FlmChatApp(Adw.Application):
         btn_start.connect("clicked", lambda b: self.on_new_chat(None))
         welcome_box.append(btn_start)
 
-        link = Gtk.LinkButton(uri="https://github.com/FastFlowLM/FastFlowLM", label="Project Homepage")
-        link.set_halign(Gtk.Align.CENTER)
-        welcome_box.append(link)
+        credits_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        credits_box.set_halign(Gtk.Align.CENTER)
+        credits_box.set_margin_top(12)
+        
+        link_ui = Gtk.LinkButton(uri="https://github.com/marleylinux/FastFlowLM-gtk", label="FastFlowLM-gtk")
+        link_ui.set_halign(Gtk.Align.CENTER)
+        credits_box.append(link_ui)
+
+        label_engine = Gtk.Label(label="Powered by FastFlowLM")
+        label_engine.add_css_class("dim-label")
+        label_engine.set_halign(Gtk.Align.CENTER)
+        credits_box.append(label_engine)
+        
+        welcome_box.append(credits_box)
         
         # Center the box inside the chat area
         self.chat_box.append(welcome_box)
@@ -613,9 +624,7 @@ class FlmChatApp(Adw.Application):
                 self.add_system_message("Error: Model server is not responding. Try reloading the model.")
                 return
 
-            thinking_label = Gtk.Label(label="Thinking...")
-            thinking_label.add_css_class("dim-label")
-            self.chat_box.append(thinking_label)
+            thinking_box = display.add_spinner(self)
             
             bubble = self.add_message("", is_user=False)
             full_content = ""
@@ -653,12 +662,12 @@ class FlmChatApp(Adw.Application):
                     except Exception as e:
                         print(f"Error encoding image: {e}")
 
-            stream = await network.get_ai_response(self, bubble, thinking_label, messages)
+            stream = await network.get_ai_response(self, bubble, thinking_box, messages)
             if not stream:
                 self.add_system_message("Error: Connection lost or network endpoint failed.")
                 self.add_system_message("The model server may have crashed. Please check the model status.")
-                if thinking_label.get_parent() == self.chat_box:
-                    self.chat_box.remove(thinking_label)
+                if thinking_box.get_parent() == self.chat_box:
+                    self.chat_box.remove(thinking_box)
                 
                 # Safely remove the empty assistant bubble container
                 parent = bubble.get_parent()
@@ -684,8 +693,8 @@ class FlmChatApp(Adw.Application):
                     if 'choices' in chunk and len(chunk['choices']) > 0:
                         text = chunk['choices'][0].get('delta', {}).get('content')
                         if text:
-                            if thinking_label.get_parent() == self.chat_box:
-                                self.chat_box.remove(thinking_label)
+                            if thinking_box.get_parent() == self.chat_box:
+                                self.chat_box.remove(thinking_box)
                             full_content += text
                             def update_bubble():
                                 try:
@@ -707,8 +716,8 @@ class FlmChatApp(Adw.Application):
             self.is_sending = False
             GLib.idle_add(self.unlock_ui)
             
-            if thinking_label.get_parent() == self.chat_box:
-                GLib.idle_add(lambda: self.chat_box.remove(thinking_label))
+            if thinking_box.get_parent() == self.chat_box:
+                GLib.idle_add(lambda: self.chat_box.remove(thinking_box))
 
     def on_choose_color(self, action, value):
         dialog = Gtk.ColorDialog.new()
