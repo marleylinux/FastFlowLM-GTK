@@ -56,6 +56,7 @@ class FlmChatApp(Adw.Application):
         self.sessions_metadata = []
         self.allow_mid_chat_switch = False
         self.is_sending = False
+        self.BASE_URL = BASE_URL
         
         self.lock_fd = None
         self.acquire_system_lock()
@@ -423,7 +424,7 @@ class FlmChatApp(Adw.Application):
 
     def on_switch_dialog_response(self, dialog, response, session_id):
         if response == "switch":
-            self.cancel_ai_task()
+            display.cancel_ai_task(self)
             
             self.execute_eject()
             self.run_task(self.load_session(session_id))

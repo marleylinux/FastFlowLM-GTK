@@ -75,6 +75,13 @@ def build_main_content(app) -> Gtk.Box:
     app.input_scroll.add_css_class("input-view")
     
     app.entry = Gtk.TextView()
+    app.entry.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+    app.entry.set_accepts_tab(False)
+    
+    key_ctrl = Gtk.EventControllerKey()
+    key_ctrl.connect("key-pressed", app.on_key_pressed)
+    app.entry.add_controller(key_ctrl)
+    
     app.input_scroll.set_child(app.entry)
     app.input_box.append(app.input_scroll)
     
