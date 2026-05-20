@@ -1,4 +1,4 @@
-# Maintainer: Marley <marley@example.com>
+# Maintainer: Marley <warburtonmarley@proton.me>
 pkgname=fastflowlm-gtk
 pkgver=1.5.1
 pkgrel=1

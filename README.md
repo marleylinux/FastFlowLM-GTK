@@ -1,46 +1,60 @@
 # FastFlowLM-gtk
 
-A modern, robust, and native GTK 4/Libadwaita graphical interface for the FastFlowLM engine.
+A simple, fast, and native GTK 4 interface for the [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM) engine.
 
-## Features
+I built this because I wanted a clean, distraction-free way to chat with local LLMs on my Arch Linux setup, without all the overhead of electron apps or web browsers. It's designed to be light, stay out of your way, and run great on GNOME/Libadwaita.
 
-### Chat Experience
-*   **Serialized Messaging:** Strict input locking during AI processing to prevent session corruption.
-*   **Automatic Focus:** The cursor automatically returns to the input bar after the AI finishes speaking.
-*   **Rate-Limiting:** Built-in cooldowns with visual feedback (dimmed/disabled input bar) to ensure backend stability.
-*   **Vision Support:** Send images directly into the chat with thumbnail previews.
-*   **Markdown Formatting:** Rich text rendering for AI responses.
+## What it does
 
-### Session Management
-*   **Persistent History:** Auto-saving chat sessions to `~/.config/flm/history`.
-*   **Searchable Sidebar:** Manage and search through past conversations with live message previews.
-*   **Data Control:** Easily delete specific chats or clear your entire history.
+### Chatting
+* **Stays in sync:** Handles message serialization so you don't break your session while it's thinking.
+* **Smart focus:** The cursor snaps back to your input bar automatically when the AI is done.
+* **Rate-limiting:** Keeps things steady if your backend needs a breather.
+* **Vision:** Drag and drop (or attach) images if your model supports it.
+* **Formatting:** Renders Markdown (bolding, code blocks, etc.) properly in the chat.
 
-### System & Customization
-*   **Dynamic Model Picker:** Switch models easily with support for vision-model identification.
-*   **Integrated Installer:** Download and install models directly from the GUI with progress tracking.
-*   **Personalized Themes:** Custom accent colors that persist across sessions.
-*   **System Resource Awareness:** RAM monitoring to prevent OOM errors when loading models.
+### Sessions
+* **History:** Saves your chats automatically to `~/.config/flm/history`.
+* **Sidebar:** A searchable sidebar for finding old thoughts.
+* **Control:** Delete or clear chats easily.
 
-## Installation & Running
+### System stuff
+* **Model Picker:** Swap between models on the fly.
+* **Installer:** Download models right inside the app.
+* **Theming:** Match your accent color to your system theme.
+* **Memory Safety:** It checks your RAM before trying to load a massive model to stop it from freezing your system.
 
-1. **Clone the repository:**
+## How it's built
+I modularized the code so it’s actually fun to work on. It’s a clean controller-service setup, even though it all lives in one flat directory for my build scripts:
+- `main.py`: The main controller that glues everything together.
+- `ui.py`: Builds the window and widgets.
+- `display.py`: Handles the chat bubbles and UI updates.
+- `sessions.py`: Saves/loads your chat history.
+- `network.py`: Talks to the AI server.
+- `models.py`: Manages the local model files and server processes.
+- `theme.py`: Handles the CSS colors.
+- `handlers.py`: Manages button clicks and key presses.
+
+## Installation
+
+### Arch Linux (AUR)
+If you're on Arch, just use your favorite AUR helper:
+```bash
+yay -S fastflowlm-gtk
+```
+
+### Manual
+1. Clone it:
    ```bash
    git clone https://github.com/marleylinux/FastFlowLM-gtk
    cd FastFlowLM-gtk
    ```
 
-2. **Dependencies:** Ensure you have the necessary GNOME/Adwaita libraries installed.
+2. Install with the script:
+   ```bash
+   sudo ./install.sh
+   ```
 
-3.  **Run the Application:**
-    Simply execute:
-    ```bash
-    python3 app.py
-    ```
-    The application will automatically handle its own path configuration.
-
-## Roadmap
-*   Support for code-block syntax highlighting.
-*   Chat export (Markdown/PDF).
-*   Configurable AI model parameters (Temperature, Top-P).
-*   System theme synchronization.
+---
+*Powered by [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM).*
+*Contact: warburtonmarley@proton.me*
