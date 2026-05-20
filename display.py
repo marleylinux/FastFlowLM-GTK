@@ -4,7 +4,8 @@ Handles UI rendering, message bubble construction, and visual status updates.
 """
 import gi
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GLib
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gtk, Gdk, GLib
 import utils
 from typing import Optional
 
@@ -42,6 +43,13 @@ def add_message(app, text: str, is_user: bool, image_path: Optional[str] = None)
     
     bubble_box.append(bubble)
     
+    if not is_user:
+        copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
+        copy_btn.add_css_class("flat")
+        copy_btn.set_halign(Gtk.Align.END)
+        copy_btn.connect("clicked", lambda b: copy_to_clipboard(text))
+        bubble_box.append(copy_btn)
+    
     align = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
     if is_user:
         align.append(Gtk.Box(hexpand=True))
@@ -53,6 +61,11 @@ def add_message(app, text: str, is_user: bool, image_path: Optional[str] = None)
     app.chat_box.append(align)
     GLib.idle_add(scroll_to_bottom, app)
     return bubble
+
+def copy_to_clipboard(text: str) -> None:
+    """Copies the provided text to the system clipboard."""
+    clipboard = Gdk.Display.get_default().get_clipboard()
+    clipboard.set(text)
 
 def add_system_message(app, text: str) -> None:
     """Adds a dimmed system status message to the chat view."""
@@ -97,6 +110,7 @@ def cancel_ai_task(app) -> None:
         children = next_child
 
     app.is_sending = False
+    GLib.idle_add(app.unlock_ui)
 
 def update_thumbnail(app) -> None:
     """Refreshes the image thumbnail preview area."""

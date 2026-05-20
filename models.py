@@ -8,6 +8,9 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib
 import asyncio
 import subprocess
+import os
+import shutil
+import json
 import flm
 import re
 from typing import Optional
@@ -18,14 +21,31 @@ async def init_server(app) -> None:
     update_model_ui(app)
 
 async def wait_for_server(app) -> None:
-    """Polls server process until it is active or times out."""
-    for _ in range(25):
+    """Polls server process until it is active or times out, checking for crashes."""
+    app.entry.set_sensitive(False)
+    app.btn_send.set_sensitive(False)
+    
+    for i in range(45):
         await asyncio.sleep(1)
-        if flm.is_model_in_memory(app.server_process):
-            app.add_system_message("Model active in host process space.")
-            GLib.timeout_add_seconds(2, app.clear_status_labels)
+        
+        # Check if process died unexpectedly
+        if app.server_process and app.server_process.poll() is not None:
+            rc = app.server_process.poll()
+            app.add_system_message(f"Error: Server process exited with code {rc}.")
+            app.add_system_message("Check ~/.config/flm/server.log for details.")
+            update_model_ui(app)
             return
-    app.add_system_message("Error: Runtime server failed to build on subsystem architecture.")
+
+        if flm.is_server_ready(app.current_model):
+            app.add_system_message(f"{app.current_model} is ready.")
+            GLib.timeout_add_seconds(2, app.clear_status_labels)
+            update_model_ui(app)
+            return
+        elif i % 5 == 0:
+            app.add_system_message(f"Waiting for {app.current_model} to initialize...")
+            
+    app.add_system_message("Error: Runtime server failed to stabilize.")
+    update_model_ui(app)
 
 def confirm_download(app, model_data: dict) -> None:
     """Shows confirmation dialog before starting model download."""
@@ -65,7 +85,7 @@ async def download_model(app, model_name: str) -> None:
     
     try:
         process = await asyncio.create_subprocess_exec(
-            "flm", "pull", model_name,
+            "flm", "pull", model_name, "--force",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT
         )
@@ -94,6 +114,9 @@ async def download_model(app, model_name: str) -> None:
         await process.wait()
         if process.returncode == 0:
             app.add_system_message(f"Successfully downloaded {model_name}")
+            app.add_system_message(f"Starting {model_name}...")
+            app.server_process = flm.start_flm_serve(model_name, app.server_process)
+            app.run_task(wait_for_server(app))
         else:
             app.add_system_message(f"Failed to download {model_name}")
     except Exception as e:
@@ -106,10 +129,9 @@ async def download_model(app, model_name: str) -> None:
 
 def update_model_ui(app) -> None:
     """Refreshes the model selector button UI state."""
-    if not app.models:
-        app.models = flm.get_all_models()
+    app.models = flm.get_all_models()
     
-    if app.current_model:
+    if app.current_model and app.current_model != "none":
         label_text = app.current_model
         model_data = next((m for m in app.models if m['model'] == app.current_model), None)
         if model_data and model_data.get('vlm', False):
@@ -118,21 +140,37 @@ def update_model_ui(app) -> None:
     else:
         app.model_btn.set_label("Select a model to start")
     
-    any_installed = any(m.get('installed', False) for m in app.models)
-    if not any_installed:
-        app.btn_new.set_sensitive(False)
-        app.btn_new.set_tooltip_text("Install a model to start a new chat.")
-    else:
+    # Always allow new chat if models are available in the registry
+    if app.models:
         app.btn_new.set_sensitive(True)
         app.btn_new.set_tooltip_text("New Chat")
+    else:
+        app.btn_new.set_sensitive(False)
+        app.btn_new.set_tooltip_text("No models found in registry.")
 
-    is_running = flm.is_model_in_memory(app.server_process)
+    is_running = flm.is_server_ready(app.current_model) if app.current_model else False
     ram_ok = flm.has_sufficient_ram()
     
-    app.btn_attach.set_sensitive(app.is_current_model_capable())
+    # Enforce sensitivity based on model selection and download state
+    is_downloading_any = len(app.downloading_models) > 0
+    has_model = app.current_model is not None and app.current_model != "none"
     
-    app.entry.set_sensitive(app.current_session_id is not None)
-    app.btn_send.set_sensitive(app.current_session_id is not None)
+    # Check if the currently selected model is actually installed
+    is_current_installed = False
+    if has_model:
+        m_data = next((m for m in app.models if m['model'] == app.current_model), None)
+        is_current_installed = m_data is not None and m_data.get('installed', False)
+
+    # Input is only allowed if we have a session, a model, it's installed, it's RUNNING, and not downloading
+    is_input_allowed = (app.current_session_id is not None and 
+                        has_model and 
+                        is_current_installed and 
+                        is_running and 
+                        not is_downloading_any)
+    
+    app.entry.set_sensitive(is_input_allowed)
+    app.btn_send.set_sensitive(is_input_allowed)
+    app.btn_attach.set_sensitive(app.is_current_model_capable() and is_current_installed and is_running and not is_downloading_any)
     
     if app.current_session_id is None:
         app.model_btn.set_sensitive(False)
@@ -179,13 +217,25 @@ def update_model_ui(app) -> None:
             label.add_css_class("uninstalled-model-label")
         else:
             label.add_css_class("installed-model-label")
+            # Container for actions
+            actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+            
+            # Info Button
+            info_btn = Gtk.Button(icon_name="dialog-information-symbolic")
+            info_btn.add_css_class("flat")
+            info_btn.set_tooltip_text("Model Details")
+            info_btn.connect("clicked", lambda b: show_model_info(app, m))
+            actions.append(info_btn)
+
+            # Trash Button
             del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+            del_btn.add_css_class("flat")
             del_btn.add_css_class("delete-btn")
-            del_btn.set_has_frame(False)
             del_btn.set_tooltip_text("Delete Model")
-            # Connect the button click only once
-            del_btn.connect("clicked", lambda b, m=model_name: confirm_delete(app, m, popover))
-            box.append(del_btn)
+            del_btn.connect("clicked", lambda b, m_data=m: confirm_delete(app, m_data, popover))
+            actions.append(del_btn)
+            
+            box.append(actions)
             
         box.append(label)
         row.set_child(box)
@@ -197,9 +247,25 @@ def update_model_ui(app) -> None:
     popover.set_child(scrolled)
     app.model_btn.set_popover(popover)
 
-def confirm_delete(app, model_name: str, popover: Gtk.Popover) -> None:
+def show_model_info(app, model_data: dict) -> None:
+    """Shows a dialog with details about the selected model."""
+    details = (
+        f"Model: {model_data.get('model', 'Unknown')}\n"
+        f"Installed: {'Yes' if model_data.get('installed') else 'No'}\n"
+        f"Vision Support: {'Yes' if model_data.get('vlm') else 'No'}"
+    )
+    dialog = Adw.MessageDialog(
+        transient_for=app.win,
+        heading="Model Information",
+        body=details
+    )
+    dialog.add_response("ok", "OK")
+    dialog.present()
+
+def confirm_delete(app, model_data: dict, popover: Gtk.Popover) -> None:
     """Shows confirmation dialog before deleting a model, closing popover first."""
     popover.popdown()
+    model_name = model_data['model']
     
     dialog = Adw.MessageDialog(
         transient_for=app.win,
@@ -211,22 +277,52 @@ def confirm_delete(app, model_name: str, popover: Gtk.Popover) -> None:
     dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
     
     def on_response(dialog, response):
-        on_delete_response(app, dialog, response, model_name)
+        on_delete_response(app, dialog, response, model_data)
 
     dialog.connect("response", on_response)
     dialog.present()
 
-def on_delete_response(app, dialog: Adw.MessageDialog, response: str, model_name: str) -> None:
-    """Callback for deletion confirmation."""
+def on_delete_response(app, dialog: Adw.MessageDialog, response: str, model_data: dict) -> None:
+    """Callback for deletion confirmation with force-refresh and folder cleanup."""
     if response == "delete":
+        model_name = model_data['model']
+        # Always eject first if it's the current model to stop the server
+        if app.current_model == model_name:
+            app.execute_eject()
+
         app.add_system_message(f"Removing {model_name}...")
         try:
+            # 1. Standard CLI removal
             subprocess.run(["flm", "remove", model_name], check=True)
+            
+            # 2. Proactive folder cleanup in ~/.config/flm/models/
+            # Many models use the repo name as the folder name.
+            # We can try to derive this from the 'url' or 'file_url' in model_data.
+            repo_folder = None
+            url = model_data.get('url') or model_data.get('file_url')
+            if url:
+                parts = url.split('/')
+                # Usually: https://huggingface.co/FastFlowLM/FolderName/...
+                if "huggingface.co" in url and len(parts) >= 5:
+                    repo_folder = parts[4]
+            
+            if repo_folder:
+                models_dir = os.path.expanduser("~/.config/flm/models")
+                target_path = os.path.join(models_dir, repo_folder)
+                if os.path.exists(target_path):
+                    import shutil
+                    shutil.rmtree(target_path)
+                    app.add_system_message(f"Purged model directory: {repo_folder}")
+
             app.add_system_message(f"Removed {model_name}")
-            app.models = flm.get_all_models()
-            update_model_ui(app)
+        except subprocess.CalledProcessError:
+            app.add_system_message(f"Model files were missing. Cleaning up UI.")
         except Exception as e:
             app.add_system_message(f"Deletion error: {str(e)}")
+        
+        # Force model list refresh
+        app.models = flm.get_all_models()
+        update_model_ui(app)
     dialog.destroy()
 
 def on_row_activated(app, listbox: Gtk.ListBox, row: Gtk.ListBoxRow, popover: Gtk.Popover) -> None:
@@ -241,16 +337,15 @@ def on_model_selected(app, btn: Optional[Gtk.Button], model_data: dict, popover:
     is_installed = model_data.get('installed', False)
     popover.popdown()
 
-    if not is_installed:
-        confirm_download(app, model_data)
-        return
-
     app.current_model = model_name
-    app.model_btn.set_label(model_name)
-    
     if app.history:
         app.save_session()
-    
-    app.add_system_message(f"Starting process matrix for {model_name}...")
-    app.server_process = flm.start_flm_serve(model_name, app.server_process)
-    app.run_task(wait_for_server(app))
+
+    if not is_installed:
+        confirm_download(app, model_data)
+    else:
+        app.add_system_message(f"Starting process matrix for {model_name}...")
+        app.server_process = flm.start_flm_serve(model_name, app.server_process)
+        app.run_task(wait_for_server(app))
+
+    update_model_ui(app)

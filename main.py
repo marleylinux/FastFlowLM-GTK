@@ -113,6 +113,12 @@ class FlmChatApp(Adw.Application):
         self.main_box = ui.build_main_content(self)
         self.split_view.set_content(self.main_box)
 
+        menu = Gio.Menu.new()
+        menu.append("Allow Mid-Chat Switch", "app.allow_switch")
+        menu.append("Clear All History", "app.clear_history")
+        menu.append("Choose Accent Color", "app.choose_color")
+        self.options_btn.set_menu_model(menu)
+
         # Ensure initial state is set before the window appears
         self.update_model_ui()
         self.show_welcome_message()
@@ -221,10 +227,6 @@ class FlmChatApp(Adw.Application):
         task = asyncio.create_task(coro)
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
-
-    async def init_server(self):
-        self.models = flm.get_all_models()
-        self.update_model_ui()
 
     def is_current_model_capable(self) -> bool:
         return self.is_current_model_vlm()
@@ -359,11 +361,10 @@ class FlmChatApp(Adw.Application):
             self.sessions_metadata = [m for m in self.sessions_metadata if m["id"] != session_id]
             
             if self.current_session_id == session_id:
-                self.entry.get_buffer().set_text("")
-                self.chat_box_remove_all()
-                self.history = []
                 self.current_session_id = None
+                self.history = []
                 self.update_model_ui()
+                self.show_welcome_message()
                 self.add_system_message("Session deleted.")
             
             self.update_history_ui()
@@ -389,11 +390,10 @@ class FlmChatApp(Adw.Application):
                     if f.endswith(".json"):
                         os.remove(os.path.join(self.history_dir, f))
                 self.sessions_metadata = []
-                self.entry.get_buffer().set_text("")
-                self.chat_box_remove_all()
-                self.history = []
                 self.current_session_id = None
+                self.history = []
                 self.update_model_ui()
+                self.show_welcome_message()
                 self.add_system_message("History cleared.")
                 self.update_history_ui()
             except Exception as e:
@@ -434,6 +434,7 @@ class FlmChatApp(Adw.Application):
         sessions.save_session(self)
 
     async def load_session(self, session_id):
+        self.models = flm.get_all_models()
         path = os.path.join(self.history_dir, f"{session_id}.json")
         try:
             with open(path, 'r') as f:
@@ -447,16 +448,43 @@ class FlmChatApp(Adw.Application):
                 for msg in self.history:
                     self.add_message(msg.get("content", ""), msg["role"] == "user", msg.get("image"))
                 
+                model_data = next((m for m in self.models if m['model'] == self.current_model), None)
+                
                 if self.current_model and self.current_model != "none":
-                    self.model_btn.set_label(self.current_model)
-                    self.add_system_message("Resources clearing... please wait.")
-                    await asyncio.sleep(1.5)
-                    self.server_process = flm.start_flm_serve(self.current_model, self.server_process)
-                    self.run_task(self.wait_for_server())
+                    if model_data and model_data.get('installed', False):
+                        self.model_btn.set_label(self.current_model)
+                        self.add_system_message("Resources clearing... please wait.")
+                        await asyncio.sleep(1.5)
+                        self.server_process = flm.start_flm_serve(self.current_model, self.server_process)
+                        self.run_task(self.wait_for_server())
+                    else:
+                        # Model not installed or missing
+                        dialog = Adw.MessageDialog(
+                            transient_for=self.win,
+                            heading="Model Missing",
+                            body=f"The model '{self.current_model}' used in this session is not installed. Would you like to download it?"
+                        )
+                        dialog.add_response("cancel", "No, keep model unloaded")
+                        dialog.add_response("download", "Download")
+                        dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
+                        dialog.connect("response", self.on_missing_model_response)
+                        dialog.present()
                 
                 self.update_model_ui()
         except Exception as e:
             self.add_system_message(f"Error loading session: {e}")
+
+    def on_missing_model_response(self, dialog, response):
+        if response == "download":
+            model_data = next((m for m in self.models if m['model'] == self.current_model), None)
+            if model_data:
+                models.confirm_download(self, model_data)
+            else:
+                self.add_system_message("Error: Model not found in registry.")
+        else:
+            # Keep the model name selected but input will be disabled by update_model_ui
+            self.update_model_ui()
+        dialog.destroy()
 
     def on_new_chat(self, btn):
         if not self.history:
@@ -530,6 +558,7 @@ class FlmChatApp(Adw.Application):
 
     def execute_new_chat(self):
         self.save_session()
+        self.execute_eject()
         self.entry.get_buffer().set_text("")
         self.chat_box_remove_all()
         self.history = []
@@ -540,7 +569,13 @@ class FlmChatApp(Adw.Application):
         self.add_system_message("New session started.")
 
     def execute_eject(self):
+        if self.server_process:
+            self.server_process.terminate()
+            self.server_process = None
         self.current_model = None
+        self.entry.set_sensitive(False)
+        self.btn_send.set_sensitive(False)
+        self.model_btn.set_label("Select a model to start")
         self.update_model_ui()
 
     def on_key_pressed(self, ctrl, keyval, keycode, state):
@@ -549,10 +584,22 @@ class FlmChatApp(Adw.Application):
     def on_send(self, widget):
         handlers.on_send(self, widget)
 
+    def unlock_ui(self):
+        """Restores user interaction capabilities to the input area."""
+        self.input_box.set_sensitive(True)
+        self.entry.set_editable(True)
+        self.btn_attach.set_sensitive(self.is_current_model_capable())
+        self.entry.grab_focus()
+
     async def get_ai_response(self):
         try:
             if not self.current_model:
                 self.add_system_message("Please select a model first.")
+                return
+            
+            # Final safety check: is the server actually responsive?
+            if not flm.is_server_ready(self.current_model):
+                self.add_system_message("Error: Model server is not responding. Try reloading the model.")
                 return
 
             thinking_label = Gtk.Label(label="Thinking...")
@@ -564,20 +611,50 @@ class FlmChatApp(Adw.Application):
             
             messages = []
             for msg in self.history:
-                content = [{"type": "text", "text": msg.get("content", "")}]
+                role = msg["role"]
+                text_content = msg.get("content", "")
+                
+                # Merge consecutive messages from the same role to prevent backend crashes
+                if messages and messages[-1]["role"] == role:
+                    # Append text to existing last message
+                    current_content = messages[-1]["content"]
+                    for item in current_content:
+                        if item["type"] == "text":
+                            item["text"] += "\n" + text_content
+                            break
+                    else:
+                        current_content.append({"type": "text", "text": text_content})
+                else:
+                    content = [{"type": "text", "text": text_content}]
+                    messages.append({"role": role, "content": content})
+
+                # Handle images (for the current or merged message)
                 if msg.get("image"):
                     try:
                         import base64
                         with open(msg["image"], "rb") as image_file:
                             encoded = base64.b64encode(image_file.read()).decode('utf-8')
-                            content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}})
+                            # Images are always appended to the current message's content
+                            messages[-1]["content"].append({
+                                "type": "image_url", 
+                                "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}
+                            })
                     except Exception as e:
                         print(f"Error encoding image: {e}")
-                messages.append({"role": msg["role"], "content": content})
 
             stream = await network.get_ai_response(self, bubble, thinking_label, messages)
             if not stream:
-                self.add_system_message("Error: Network endpoint request failed.")
+                self.add_system_message("Error: Connection lost or network endpoint failed.")
+                self.add_system_message("The model server may have crashed. Please check the model status.")
+                if thinking_label.get_parent() == self.chat_box:
+                    self.chat_box.remove(thinking_label)
+                
+                # Safely remove the empty assistant bubble container
+                parent = bubble.get_parent()
+                if parent:
+                    align = parent.get_parent()
+                    if align and align.get_parent() == self.chat_box:
+                        self.chat_box.remove(align)
                 return
                 
             data_stream = Gio.DataInputStream.new(stream)
@@ -617,14 +694,7 @@ class FlmChatApp(Adw.Application):
             self.add_system_message(f"Connection mapping error: {str(e)}")
         finally:
             self.is_sending = False
-            
-            # Robust UI unlock upon completion
-            def unlock_ui():
-                self.input_box.set_sensitive(True)
-                self.entry.set_editable(True)
-                self.btn_attach.set_sensitive(self.is_current_model_capable())
-                self.entry.grab_focus()
-            GLib.idle_add(unlock_ui)
+            GLib.idle_add(self.unlock_ui)
             
             if thinking_label.get_parent() == self.chat_box:
                 GLib.idle_add(lambda: self.chat_box.remove(thinking_label))
@@ -649,4 +719,5 @@ class FlmChatApp(Adw.Application):
         self.save_session()
         if self.server_process:
             self.server_process.terminate()
+        flm.kill_existing_servers()
         Adw.Application.do_shutdown(self)

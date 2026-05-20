@@ -20,10 +20,13 @@ def save_session(app) -> None:
             title = msg["content"][:40].replace("\n", " ") + (len(msg["content"]) > 40 and "..." or "")
             break
     
+    # Preserve existing model if we have one, otherwise fallback
+    existing_model = app.current_model if app.current_model else "none"
+    
     data = {
         "id": app.current_session_id,
         "title": title,
-        "model": app.current_model or "none",
+        "model": existing_model,
         "messages": app.history
     }
     
