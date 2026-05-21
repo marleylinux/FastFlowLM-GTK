@@ -1,60 +1,72 @@
 # FastFlowLM-gtk
 
-A simple, fast, and native GTK 4 interface for the [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM) engine.
+**FastFlowLM-gtk** is a minimalist, native interface for the [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM) LLM engine. Built with GTK 4 and Libadwaita, it provides a distraction-free environment for chatting with local LLMs on Arch Linux.
 
-I built this because I wanted a clean, distraction-free way to chat with local LLMs on my Arch Linux setup, without all the overhead of electron apps or web browsers. It's designed to be light, stay out of your way, and run great on GTK/Libadwaita.
+---
 
-## What it does
+## 🚀 Key Features
 
-### Chatting
-* **Stays in sync:** Handles message serialization so you don't break your session while it's thinking.
-* **Smart focus:** The cursor snaps back to your input bar automatically when the AI is done.
-* **Rate-limiting:** Keeps things steady if your backend needs a breather.
-* **Vision:** Drag and drop (or attach) images if your model supports it.
-* **Formatting:** Renders Markdown (bolding, code blocks, etc.) properly in the chat.
+*   **Native Performance:** Built for speed using GTK 4/Libadwaita. No browser or Electron bloat.
+*   **Intelligent Session Management:** Automatic history saving, searchable chat sidebar, and robust session loading.
+*   **Vision-Ready:** Support for attaching images to supported VLM models.
+*   **System Awareness:** Real-time RAM monitoring and smart server lifecycle management.
+*   **Theming:** Dynamic accent color support that matches your desktop theme.
+*   **Robust Streaming:** Real-time token streaming with resilient connection handling.
 
-### Sessions
-* **History:** Saves your chats automatically to `~/.config/flm/history`.
-* **Sidebar:** A searchable sidebar for finding old thoughts.
-* **Control:** Delete or clear chats easily.
+---
 
-### System stuff
-* **Model Picker:** Swap between models on the fly.
-* **Installer:** Download models right inside the app.
-* **Theming:** Match your accent color to your system theme.
-* **Memory Safety:** It checks your RAM before trying to load a massive model to stop it from freezing your system.
+## 🏗 Architectural Overview
 
-## How it's built
-I modularized the code so it’s actually fun to work on. It’s a clean controller-service setup, even though it all lives in one flat directory for my build scripts:
-- `main.py`: The main controller that glues everything together.
-- `ui.py`: Builds the window and widgets.
-- `display.py`: Handles the chat bubbles and UI updates.
-- `sessions.py`: Saves/loads your chat history.
-- `network.py`: Talks to the AI server.
-- `models.py`: Manages the local model files and server processes.
-- `theme.py`: Handles the CSS colors.
-- `handlers.py`: Manages button clicks and key presses.
+The application follows a clean, modular structure to ensure maintainability and separation of concerns:
 
-## Installation
+| Module | Responsibility |
+| :--- | :--- |
+| `main.py` | **Controller:** Orchestrates application lifecycle and state. |
+| `ui.py` | **Layouts:** Static widget and sidebar construction. |
+| `display.py` | **Rendering:** Handles UI updates, chat bubbles, and state changes. |
+| `handlers.py` | **Events:** Interaction logic (keyboard shortcuts, clicks, sending). |
+| `models.py` | **System:** Server lifecycle and model management (downloads/repairs). |
+| `network.py` | **Transport:** Asynchronous communication with the LLM backend. |
+| `sessions.py` | **Persistence:** Chat history saving and metadata indexing. |
+| `theme.py` | **Style:** Dynamic CSS injection. |
+| `flm.py` | **Glue:** Wrapper functions for the `flm` command-line tools. |
+| `utils.py` | **Helpers:** Markdown processing and CSS definitions. |
+
+---
+
+## 🛠 Setup & Installation
 
 ### Arch Linux (AUR)
-If you're on Arch, just use your favorite AUR helper:
+If you're on Arch, use your preferred AUR helper:
 ```bash
 yay -S fastflowlm-gtk
 ```
 
-### Manual
-1. Clone it:
+### Manual Installation
+1. **Clone the repository:**
    ```bash
    git clone https://github.com/marleylinux/FastFlowLM-gtk
    cd FastFlowLM-gtk
    ```
-
-2. Install with the script:
+2. **Install dependencies:**
+   Ensure you have the required dependencies: `fastflowlm`, `python`, `python-gobject`, `gtk4`, `libadwaita`, `libsoup3`, `gtksourceview5`, and `python-psutil`.
+3. **Run the installation script:**
    ```bash
    sudo ./install.sh
    ```
 
 ---
-*Powered by [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM).* << (made by people way smarter than me)
+
+## 💡 Usage Notes
+
+*   **Model Management:** Use the "Repair" button (refresh icon) in the top header bar to force-reinstall corrupted models without manual file manipulation.
+*   **Mid-Chat Switching:** You can enable model switching mid-conversation via the options menu, though this may trigger a model server reload.
+*   **System Locks:** The app manages model resource usage via `~/.config/flm/model_ram.lock` to prevent system instability.
+
+---
+
+## 🤝 Contribution
+Contributions are welcome! Please open an issue or pull request for any bugs or enhancements.
+
+*Powered by [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM).*
 *Contact: warburtonmarley@proton.me*
