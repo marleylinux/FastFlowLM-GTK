@@ -10,7 +10,7 @@ from typing import Optional, List, Dict
 
 import init_gi
 import gi
-from gi.repository import Gtk, Gdk, Gio, GLib, Adw, Soup
+from gi.repository import Gtk, Gdk, GdkPixbuf, Gio, GLib, Adw, Soup
 
 import utils
 import flm
@@ -467,19 +467,19 @@ class FlmChatApp(Adw.Application):
 
                 if msg.get("image"):
                     try:
-                        ext = os.path.splitext(msg["image"])[1].lower().strip('.')
-                        mime_type = f"image/{ext}" if ext in ["png", "webp", "jpeg", "jpg"] else "image/jpeg"
-                        if ext == "jpg": mime_type = "image/jpeg"
-                        
-                        with open(msg["image"], "rb") as image_file:
-                            encoded = base64.b64encode(image_file.read()).decode("utf-8")
+                        # Use GdkPixbuf to convert any format (PNG, WebP) to a standard JPEG for the AI
+                        pixbuf = GdkPixbuf.Pixbuf.new_from_file(msg["image"])
+                        success, buffer = pixbuf.save_to_bufferv("jpeg", [], [])
+                        if success:
+                            encoded = base64.b64encode(buffer).decode("utf-8")
                             messages[-1]["content"].append({
                                 "type": "image_url", 
-                                "image_url": {"url": f"data:{mime_type};base64,{encoded}"}
+                                "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}
                             })
+                        else:
+                            logging.error(f"Failed to convert image to JPEG: {msg['image']}")
                     except Exception as e:
                         logging.error(f"Error encoding image: {e}")
-
             stream = await network.get_ai_response(self, bubble, thinking_box, messages)
             if not stream:
                 display.add_system_message(self, "Error: Connection lost or network endpoint failed.")
