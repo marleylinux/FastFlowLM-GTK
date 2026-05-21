@@ -127,6 +127,11 @@ def cancel_ai_task(app) -> None:
     app.is_sending = False
     if hasattr(app, "unlock_ui"):
         GLib.idle_add(app.unlock_ui)
+    else:
+        # Fallback if unlock_ui is somehow not found
+        app.input_box.set_sensitive(True)
+        app.entry.set_editable(True)
+        app.entry.grab_focus()
 
 def update_thumbnail(app) -> None:
     """Refreshes the image thumbnail preview area."""

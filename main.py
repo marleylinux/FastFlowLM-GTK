@@ -131,12 +131,25 @@ class FlmChatApp(Adw.Application):
         GLib.idle_add(lambda: sessions.load_history_metadata(self))
         GLib.idle_add(lambda: self.run_task(self.init_server()))
 
+    # Cache for session search to avoid disk thrashing
+    _search_cache = {}
+
     def on_search_changed(self, entry):
         text = entry.get_text().lower()
         
         for i, row in enumerate(self.history_list):
             session_id = self.sessions_metadata[i]["id"]
             path = os.path.join(self.history_dir, f"{session_id}.json")
+            
+            # Use cache if available
+            if session_id not in self._search_cache:
+                try:
+                    with open(path, 'r') as f:
+                        self._search_cache[session_id] = json.load(f).get("messages", [])
+                except:
+                    self._search_cache[session_id] = []
+            
+            messages = self._search_cache[session_id]
             
             # Row(ListBoxRow) -> Box(main_box) -> Box(txt_box)
             main_box = row.get_child()
@@ -151,19 +164,13 @@ class FlmChatApp(Adw.Application):
                 continue
                 
             found_text = None
-            try:
-                with open(path, 'r') as f:
-                    data = json.load(f)
-                    for msg in data.get("messages", []):
-                        content = msg.get("content", "")
-                        if text in content.lower():
-                            # Extract preview: start from match and take 40 chars, no leading '...'
-                            start_idx = content.lower().find(text)
-                            preview = content[start_idx:start_idx+40]
-                            found_text = f"{preview}..."
-                            break
-            except:
-                pass
+            for msg in messages:
+                content = msg.get("content", "")
+                if text in content.lower():
+                    start_idx = content.lower().find(text)
+                    preview = content[start_idx:start_idx+40]
+                    found_text = f"{preview}..."
+                    break
             
             if found_text:
                 row.set_visible(True)
