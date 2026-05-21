@@ -80,4 +80,5 @@ yay -S fastflowlm-gtk
 Contributions are encouraged! If you find a bug or have an idea, feel free to submit a Pull Request or open an issue on the GitHub repository.
 
 *Powered by [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM).*
+
 *Contact: warburtonmarley@proton.me*
