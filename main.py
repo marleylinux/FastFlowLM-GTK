@@ -134,27 +134,36 @@ class FlmChatApp(Adw.Application):
     # Cache for session search to avoid disk thrashing
     _search_cache = {}
 
+    def unlock_ui(self):
+        """Restores user interaction capabilities to the input area."""
+        self.input_box.set_sensitive(True)
+        self.entry.set_editable(True)
+        self.btn_attach.set_sensitive(self.is_current_model_capable())
+        self.entry.grab_focus()
+        self.is_sending = False
+
     def on_search_changed(self, entry):
         text = entry.get_text().lower()
+        if not hasattr(self, '_search_cache'):
+            self._search_cache = {}
         
         for i, row in enumerate(self.history_list):
             session_id = self.sessions_metadata[i]["id"]
             path = os.path.join(self.history_dir, f"{session_id}.json")
             
-            # Use cache if available
             if session_id not in self._search_cache:
                 try:
                     with open(path, 'r') as f:
-                        self._search_cache[session_id] = json.load(f).get("messages", [])
-                except:
+                        data = json.load(f)
+                        self._search_cache[session_id] = data.get("messages", [])
+                except Exception as e:
+                    logging.error(f"Failed to cache session {session_id}: {e}")
                     self._search_cache[session_id] = []
             
             messages = self._search_cache[session_id]
             
-            # Row(ListBoxRow) -> Box(main_box) -> Box(txt_box)
             main_box = row.get_child()
             txt_box = main_box.get_first_child()
-            # Title is first, model subtitle is second in txt_box
             title_label = txt_box.get_first_child()
             model_label = title_label.get_next_sibling()
             
@@ -172,11 +181,9 @@ class FlmChatApp(Adw.Application):
                     found_text = f"{preview}..."
                     break
             
+            row.set_visible(found_text is not None)
             if found_text:
-                row.set_visible(True)
                 model_label.set_label(found_text)
-            else:
-                row.set_visible(False)
 
     def on_attach_clicked(self, btn):
         handlers.on_attach_clicked(self, btn)
