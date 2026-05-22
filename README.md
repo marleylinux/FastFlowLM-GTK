@@ -35,9 +35,9 @@ Here are the shortcuts I set up to make navigation quick and easy:
 
 ---
 
-## Performance Tip: Memory Locking (memlock)
+## Required Setup: Memory Locking (memlock)
 
-To get the absolute best performance out of local LLMs, you'll want to enable memory locking (`memlock`). By default, Linux might swap parts of your active model out of RAM and onto your disk, which makes responses super slow. Memory locking forces your system to keep the model pinned in RAM.
+To load and run local models (especially when utilizing hardware acceleration like Ryzen AI / XDNA), you need to configure memory locking (`memlock`). Without this setup, the local model server may fail to load models or crash. Memory locking allows the system to pin models securely in RAM.
 
 Here is how you can set it up:
 
@@ -52,7 +52,7 @@ Here is how you can set it up:
    ```
 3. Log out of your desktop session and log back in (or restart) for the new limits to take effect.
 
-Once configured, your local model server will run noticeably faster and smoother!
+Once configured, the model server will be able to load models properly without crashing!
 
 ---
 
