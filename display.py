@@ -148,7 +148,34 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
         avatar_box.add_css_class("avatar-user")
         avatar_img = Gtk.Image.new_from_icon_name("avatar-default-symbolic")
     else:
-        avatar_img = Gtk.Image.new_from_icon_name("computer-symbolic")
+        # let's load a custom model avatar if it matches Qwen, Gemini, Llama, etc.
+        model_name = getattr(app, "current_model", None) or "Assistant"
+        model_name_lower = model_name.lower()
+        
+        import os
+        assets_dir = os.path.dirname(os.path.abspath(__file__))
+        img_file = None
+        
+        if "qwen" in model_name_lower:
+            img_file = "qwen.png"
+        elif "gemini" in model_name_lower or "google" in model_name_lower:
+            img_file = "gemini.png"
+        elif "llama" in model_name_lower:
+            img_file = "llama.png"
+        elif "mistral" in model_name_lower:
+            img_file = "mistral.png"
+        elif "phi" in model_name_lower:
+            img_file = "phi.png"
+            
+        if img_file:
+            img_path = os.path.join(assets_dir, "assets", img_file)
+            if os.path.exists(img_path):
+                avatar_img = Gtk.Image.new_from_file(img_path)
+                avatar_img.set_pixel_size(32) # scale down nicely to fit our circle
+            else:
+                avatar_img = Gtk.Image.new_from_icon_name("computer-symbolic")
+        else:
+            avatar_img = Gtk.Image.new_from_icon_name("computer-symbolic")
         
     avatar_img.set_halign(Gtk.Align.CENTER)
     avatar_img.set_valign(Gtk.Align.CENTER)

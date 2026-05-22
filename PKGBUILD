@@ -21,14 +21,29 @@ source=("com.marley.FastFlowLM-gtk.desktop"
         "handlers.py"
         "models.py"
         "display.py"
-        "init_gi.py")
-        sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        "init_gi.py"
+        "assets/llama.png"
+        "assets/qwen.png"
+        "assets/gemini.png"
+        "assets/mistral.png"
+        "assets/phi.png")
+        sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # Install Python files
   install -d "$pkgdir/usr/share/fastflowlm-gtk"
   install -m644 "$srcdir/"*.py "$pkgdir/usr/share/fastflowlm-gtk/"
   chmod 755 "$pkgdir/usr/share/fastflowlm-gtk/app.py"
+
+  # Install custom model avatars
+  install -d "$pkgdir/usr/share/fastflowlm-gtk/assets"
+  for avatar in llama qwen gemini mistral phi; do
+    if [ -f "$srcdir/assets/$avatar.png" ]; then
+      install -m644 "$srcdir/assets/$avatar.png" "$pkgdir/usr/share/fastflowlm-gtk/assets/"
+    elif [ -f "$srcdir/$avatar.png" ]; then
+      install -m644 "$srcdir/$avatar.png" "$pkgdir/usr/share/fastflowlm-gtk/assets/$avatar.png"
+    fi
+  done
 
   # Install Icon (Convert to PNG with transparency preservation)
   install -d "$pkgdir/usr/share/icons/hicolor/256x256/apps"

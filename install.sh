@@ -21,6 +21,7 @@ APP_DIR="/usr/share/applications"
 
 # Create directories
 mkdir -p "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR/assets"
 mkdir -p "$ICON_DIR"
 mkdir -p "$APP_DIR"
 
@@ -28,6 +29,10 @@ mkdir -p "$APP_DIR"
 cp *.py "$INSTALL_DIR/"
 chmod 644 "$INSTALL_DIR"/*.py
 chmod 755 "$INSTALL_DIR/app.py"
+
+# Install custom model avatars
+cp assets/*.png "$INSTALL_DIR/assets/"
+chmod 644 "$INSTALL_DIR/assets"/*.png
 
 # Install Icon
 magick flm-gtk.webp "$ICON_DIR/com.marley.FastFlowLM-gtk.png"
