@@ -2,26 +2,23 @@
 
 A native GTK4 chat client for [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM).
 
-I'm a hobbyist coder who loves desktop Linux, and I built this because I wanted something that actually felt like it belonged on my desktop. I got tired of web UIs and heavy Electron apps eating up my RAM just to talk to a local model. This is a simple, lightweight GTK4 app that works nicely with GNOME and tiling window managers.
+It belongs on desktop Linux. It uses GTK4, `GtkSourceView 5`, and avoids bloated Electron/web frameworks so it doesn't chew through your RAM just to talk to local LLMs. It fits cleanly into GNOME or tiling window managers.
 
-This is a personal hobby project I wrote just for the fun of it. There are no tracking scripts, no telemetry, and no bloated web frameworks here—just a pure local desktop tool.
+No telemetry, no tracking, no web slop. Just a simple offline tool.
 
 ---
 
-## Things I Built It to Do
+## Features
 
-*   **Super Fast Model Swapping** – You can download, load, and switch models directly in the app without touching the terminal.
-*   **Real Syntax Highlighting** – Powered by `GtkSourceView 5` so code blocks actually look good (supporting Python, C++, JS, Bash, and more).
-*   **Vision/Image Support** – If you are running a vision model (VLM), you can drag and drop images directly into the chat.
-*   **Completely Offline & Local** – Everything stays on your machine, exactly as it should be.
-*   **Keyboard Shortcuts** – Built for people who prefer using the keyboard instead of clicking around.
-*   **RAM Safety** – It shows a friendly warning before loading a model that might freeze your system if you're low on RAM.
+*   **Model switching** – Download and switch local models directly within the UI.
+*   **Syntax highlighting** – Uses real `GtkSourceView 5` components (Python, C++, JS, Bash, etc.).
+*   **VLM / Image input** – Drag and drop image files directly into the input to prompt vision models.
+*   **Keyboard navigation** – Hotkeys for sidebar, new chat, copy last output, and search.
+*   **RAM limits check** – Warns before loading a model that will likely freeze your system.
 
 ---
 
 ## Keyboard Shortcuts
-
-Here are the shortcuts I set up to make navigation quick and easy:
 
 | Shortcut | Action |
 | :--- | :--- |
@@ -35,32 +32,30 @@ Here are the shortcuts I set up to make navigation quick and easy:
 
 ---
 
-## Required Setup: Memory Locking (memlock)
+## Setup Requirements: memory locking (memlock)
 
-To load and run local models, `fastflowlm` requires memory locking (`memlock`) to be set to infinity. Without this setup, the local model server may fail to load models or crash. Memory locking allows the system to pin models securely in RAM.
+Local model loading via `fastflowlm` requires memory locking limits to be set to infinity. If you skip this, it crashes.
 
-Here is how you can set it to infinity (`unlimited`):
+Here is how to set it to unlimited:
 
-1. Open `/etc/security/limits.conf` in your favorite editor (you'll need `sudo`):
+1. Open `/etc/security/limits.conf` as root:
    ```bash
    sudo nano /etc/security/limits.conf
    ```
-2. Add these two lines at the bottom of the file (replace `your-username` with your actual Linux username, like `marley`):
+2. Add these to the bottom (replace `your-username` with your actual Linux user):
    ```text
    your-username    soft    memlock    unlimited
    your-username    hard    memlock    unlimited
    ```
-3. Log out of your desktop session and log back in (or restart) for the new limits to take effect.
-
-Once configured, the model server will be able to load models properly without crashing!
+3. Log out or restart for the limits to take effect.
 
 ---
 
 ## Getting Started (Arch Linux)
 
-Since I run Arch, I packaged it for Pacman and the AUR. You'll need `fastflowlm` installed on your system.
+Dependencies: `gtk4`, `libadwaita`, `gtksourceview5`, `libsoup3`, `python-gobject`, `python-psutil`, `fastflowlm`, `xrt-plugin-amdxdna`.
 
-### 1. Grab dependencies via Pacman:
+### 1. Install dependencies:
 ```bash
 sudo pacman -S gtk4 libadwaita gtksourceview5 libsoup3 python-gobject python-psutil fastflowlm xrt-plugin-amdxdna
 ```
@@ -70,16 +65,14 @@ sudo pacman -S gtk4 libadwaita gtksourceview5 libsoup3 python-gobject python-psu
 yay -S fastflowlm-gtk
 ```
 
-### 3. Or install manually:
-If you prefer to clone and run the installation script:
+### 3. Manual installation:
 ```bash
 git clone https://github.com/marleylinux/FastFlowLM-gtk
 cd FastFlowLM-gtk
 sudo ./install.sh
 ```
 
-### Running Directly
-If you want to run it directly from the source directory without installing it globally:
+### Run without installing:
 ```bash
 python app.py
 ```

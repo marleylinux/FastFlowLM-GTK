@@ -1,4 +1,4 @@
-# let's handle rendering all the chat elements beautifully (bubbles, code, files)
+# handles rendering chat interface elements
 import init_gi
 from gi.repository import Gtk, Gdk, GLib, GtkSource, Pango
 import utils
@@ -6,10 +6,10 @@ import logging
 from typing import Optional
 
 def create_code_block(code: str, language_id: str) -> Gtk.ScrolledWindow:
-    # create a code view widget equipped with clean syntax highlighting
+    # create code view with syntax highlighting
     lang_manager = GtkSource.LanguageManager.get_default()
     
-    # map markdown language names to their GTK syntax language IDs
+    # map markdown language names to GTK source IDs
     lang_map = {
         "python": "python",
         "py": "python",
@@ -35,7 +35,7 @@ def create_code_block(code: str, language_id: str) -> Gtk.ScrolledWindow:
     buffer = GtkSource.Buffer.new_with_language(lang) if lang else GtkSource.Buffer.new()
     buffer.set_text(code)
     
-    # apply a dark theme scheme to our code view so it looks great
+    # load dark style scheme
     scheme_manager = GtkSource.StyleSchemeManager.get_default()
     scheme = scheme_manager.get_scheme("Adwaita-dark") or scheme_manager.get_scheme("oblivion")
     if scheme:
@@ -53,13 +53,13 @@ def create_code_block(code: str, language_id: str) -> Gtk.ScrolledWindow:
     scrolled.set_vexpand(False)
     scrolled.set_propagate_natural_height(True)
     scrolled.set_min_content_height(100)
-    scrolled.set_min_content_width(650)  # set a comfortable reading width
+    scrolled.set_min_content_width(650)  # comfortable reading width
     scrolled.set_max_content_height(600)
     scrolled.set_child(view)
     return scrolled
 
 def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
-    # build a message box containing the text bubble, alignment, and avatar
+    # build message bubble layout
     bubble_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
     bubble_box.add_css_class("user-bubble" if is_user else "assistant-bubble")
     if is_user:
@@ -67,7 +67,7 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
     else:
         bubble_box.set_halign(Gtk.Align.START)
     
-    # the header line that shows who sent the message (You or the AI model)
+    # message header showing sender
     header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     header.add_css_class("bubble-header")
     
@@ -93,7 +93,7 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
         
     bubble_box.append(header)
     
-    # process any attachments associated with this chat message
+    # process attachments
     att_list = []
     if attachments:
         if isinstance(attachments, str):
@@ -101,7 +101,7 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
         elif isinstance(attachments, list):
             att_list = attachments
 
-    # if there are images, render them nicely inside the chat history
+    # render image attachments
     for att in att_list:
         if isinstance(att, dict) and att.get("type") == "image":
             path = att.get("path")
@@ -137,18 +137,18 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
             bubble_box.append(bubble)
             last_bubble = bubble
             
-    # build a small rounded avatar box for a nice visual touch
+    # build avatar box
     avatar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
     avatar_box.add_css_class("avatar-box")
     avatar_box.set_size_request(32, 32)
     avatar_box.set_halign(Gtk.Align.CENTER)
-    avatar_box.set_valign(Gtk.Align.START) # keep the avatar aligned to the top of the message
+    avatar_box.set_valign(Gtk.Align.START) # align avatar to top
     
     if is_user:
         avatar_box.add_css_class("avatar-user")
         avatar_img = Gtk.Image.new_from_icon_name("avatar-default-symbolic")
     else:
-        # let's load a custom model avatar if it matches Qwen, Gemini, Llama, etc.
+        # load custom avatar based on model name
         model_name = getattr(app, "current_model", None) or "Assistant"
         model_name_lower = model_name.lower()
         
@@ -171,7 +171,7 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
             img_path = os.path.join(assets_dir, "assets", img_file)
             if os.path.exists(img_path):
                 avatar_img = Gtk.Image.new_from_file(img_path)
-                avatar_img.set_pixel_size(32) # scale down nicely to fit our circle
+                avatar_img.set_pixel_size(32) # scale to fit
             else:
                 avatar_img = Gtk.Image.new_from_icon_name("computer-symbolic")
         else:
@@ -183,7 +183,7 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
     avatar_img.set_vexpand(True)
     avatar_box.append(avatar_img)
     
-    # arrange the avatar and message bubble horizontally depending on who is talking
+    # arrange layout based on sender
     align = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     if is_user:
         align.set_halign(Gtk.Align.END)
@@ -199,13 +199,13 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
     return last_bubble
 
 def copy_to_clipboard(text: str) -> None:
-    # copy the message text to the system clipboard
+    # copy message text to clipboard
     clipboard = Gdk.Display.get_default().get_clipboard()
     content = Gdk.ContentProvider.new_for_value(text)
     clipboard.set_content(content)
 
 def add_system_message(app, text: str) -> None:
-    # insert a simple status notice line in the chat flow
+    # insert status line in chat
     label = Gtk.Label(label=text)
     label.add_css_class("system-status")
     label.set_margin_top(10)
@@ -215,7 +215,7 @@ def add_system_message(app, text: str) -> None:
     GLib.idle_add(scroll_to_bottom, app)
 
 def add_spinner(app) -> Gtk.Spinner:
-    # show a friendly progress spinner when the model is thinking
+    # show thinking spinner
     box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
     box.set_margin_top(10)
     box.set_margin_bottom(10)
@@ -227,7 +227,7 @@ def add_spinner(app) -> Gtk.Spinner:
     return box
 
 def clear_status_labels(app) -> bool:
-    # clean up any temporary status messages from the screen
+    # clean up status labels
     for label in app.status_labels:
         if label.get_parent() == app.chat_box:
             app.chat_box.remove(label)
@@ -235,19 +235,19 @@ def clear_status_labels(app) -> bool:
     return False
 
 def scroll_to_bottom(app) -> None:
-    # scroll our scrollable window down to the very bottom
+    # scroll to bottom
     adj = app.scrolled.get_vadjustment()
     adj.set_value(adj.get_upper() - adj.get_page_size())
 
 def chat_box_remove_all(app) -> None:
-    # completely empty out the chat flow list
+    # clear chat flow list
     child = app.chat_box.get_first_child()
     while child:
         app.chat_box.remove(child)
         child = app.chat_box.get_first_child()
 
 def cancel_ai_task(app) -> None:
-    # let's stop the active AI task if the user requests it
+    # cancel active AI task
     if app.ai_task and not app.ai_task.done():
         app.ai_task.cancel()
     
@@ -272,13 +272,13 @@ def cancel_ai_task(app) -> None:
     if hasattr(app, "unlock_ui"):
         GLib.idle_add(app.unlock_ui)
     else:
-        # fallback inputs to keep the window interactive
+        # fallback input restoration
         app.input_box.set_sensitive(True)
         app.set_entry_locked(False)
         app.entry.grab_focus()
 
 def update_thumbnail(app) -> None:
-    # refresh our list of selected file attachments in the compose box
+    # sync compose box attachment thumbnails
     child = app.thumb_box.get_first_child()
     while child:
         app.thumb_box.remove(child)
@@ -338,12 +338,12 @@ def update_thumbnail(app) -> None:
         app.thumb_box.append(card_box)
 
 def on_remove_attachment(app, index: int) -> None:
-    # remove a single selected attachment by its index
+    # remove attachment by index
     if hasattr(app, "selected_attachments") and 0 <= index < len(app.selected_attachments):
         app.selected_attachments.pop(index)
     update_thumbnail(app)
 
 def on_remove_thumbnail(app) -> None:
-    # empty the entire list of selected attachments
+    # purge attachments
     app.selected_attachments = []
     update_thumbnail(app)

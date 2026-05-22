@@ -6,7 +6,7 @@ import os
 from typing import List, Dict, Optional
 
 def get_all_models() -> List[Dict]:
-    # let's fetch the list of models by calling the flm command line tool
+    # fetch models from flm cli
     try:
         res = subprocess.run(["flm", "list", "--json"], 
                            capture_output=True, text=True, check=True)
@@ -19,12 +19,12 @@ def get_all_models() -> List[Dict]:
         return []
 
 def is_model_in_memory(server_process: Optional[subprocess.Popen], model_name: Optional[str] = None) -> bool:
-    # let's see if our model server is active right now
+    # check if server is running
     if server_process and server_process.poll() is None:
         return True
         
     try:
-        # fallback to using pgrep if the subprocess handle isn't available
+        # backup check via pgrep
         pattern = "flm serve"
         if model_name:
             pattern += f" {model_name}"
@@ -36,7 +36,7 @@ def is_model_in_memory(server_process: Optional[subprocess.Popen], model_name: O
         return False
 
 def is_port_open(port: int = 52625) -> bool:
-    # see if the model server port is open and listening
+    # check if port is listening
     import socket
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.1):
@@ -45,32 +45,32 @@ def is_port_open(port: int = 52625) -> bool:
         return False
 
 def is_server_ready(model_name: str, port: int = 52625, server_process=None) -> bool:
-    # checks to see if the server is fully ready to receive chat messages
-    # check the active process first
+    # verify server is ready
+    # check process first
     if server_process and server_process.poll() is None:
         return is_port_open(port)
-    # then check the network port
+    # check port next
     return is_model_in_memory(None, model_name) and is_port_open(port)
 
 def kill_existing_servers():
-    # clean up any running server processes before starting a new one
+    # kill orphaned instances because pkill is a mess
     try:
         subprocess.run(["pkill", "-f", "flm serve"], stderr=subprocess.DEVNULL)
     except:
         pass
 
 def has_sufficient_ram(required_gb=4.0) -> bool:
-    # check if the system has enough free memory to run the model
+    # check memory before doing something dumb
     try:
         mem = psutil.virtual_memory()
         available_gb = mem.available / (1024 ** 3)
         return available_gb >= required_gb
     except Exception as e:
         print(f"RAM evaluation failed: {e}")
-        return True  # if we can't check, we'll assume it's fine and hope for the best
+        return True  # hope for the best if psutil fails
 
 def start_flm_serve(model: str, current_server_process: Optional[subprocess.Popen]) -> subprocess.Popen:
-    # terminate the active server to swap in the new one
+    # terminate existing process
     if current_server_process:
         current_server_process.terminate()
         try:
@@ -78,7 +78,7 @@ def start_flm_serve(model: str, current_server_process: Optional[subprocess.Pope
         except subprocess.TimeoutExpired:
             current_server_process.kill()
             
-    # sweep away any leftover server processes to free up RAM
+    # sweep leftover processes
     kill_existing_servers()
     
     log_path = os.path.expanduser("~/.config/flm/server.log")

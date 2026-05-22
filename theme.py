@@ -1,10 +1,10 @@
-# this handles loading and setting our custom window accent colors
+# load/set accent colors
 import os
 import json
 import utils
 
 def load_theme_color() -> str:
-    # let's read the saved color from our config file
+    # read accent color from config
     config_path = os.path.expanduser("~/.config/flm/theme.json")
     if os.path.exists(config_path):
         try:
@@ -14,7 +14,7 @@ def load_theme_color() -> str:
     return "#3584e4"
 
 def apply_theme(app, hex_color: str) -> None:
-    # let's apply our style sheet dynamically to the application
+    # load custom css dynamically
     full_css = f"""
     @define-color accent_bg_color {hex_color};
     {utils.CSS}

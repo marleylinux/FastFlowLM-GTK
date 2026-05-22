@@ -504,13 +504,13 @@ def markdown_to_pango(text: str) -> str:
     return text
 
 def looks_like_code(text: str) -> bool:
-    # let's try to guess if this text is a snippet of code
+    # guess if text is code
     lines = text.split('\n')
     if len(lines) < 2: return False
     
     score = 0
     
-    # strong clues that this is code (like functions or includes)
+    # strong code patterns
     high_signal = [
         r"def\s+\w+\(.*\):",           # py func
         r"if\s+__name__\s*==\s*",       # py main
@@ -522,7 +522,7 @@ def looks_like_code(text: str) -> bool:
         r"#!/bin/\w+",                  # shebang
     ]
     
-    # weaker clues (like imports or print statements)
+    # weak code patterns
     mid_signal = [
         r"^import\s+\w+",               # import
         r"^from\s+\w+\s+import",        # from import
@@ -544,27 +544,27 @@ def looks_like_code(text: str) -> bool:
         for pattern in mid_signal:
             if re.search(pattern, line): score += 5
             
-        # check for characters commonly found at the end of code lines
+        # check typical ending chars
         if any(line.endswith(c) for c in [';', '{', '}', ':', ')']):
             score += 3
         if line.startswith('    ') or line.startswith('\t'):
             score += 3
 
-    # if >= 15 it's code
+    # threshold check
     return score >= 15
 
 def parse_message(text: str):
-    # split the message up into text segments and code snippets
+    # parse markdown and code segments
     if not text:
         return [("text", "", None)]
     
-    # check if the text contains markdown code blocks with triple backticks
+    # extract backtick code blocks
     if "```" in text:
         pattern = re.compile(r"```(\w+)?(?:\s|\n)*(.*?)```", re.DOTALL)
         chunks = []
         last_end = 0
         
-        # let's try to detect the programming language based on common keywords
+        # heuristic language detection
         py_keywords = {"import", "from", "def", "class", "print", "if __name__"}
         sh_keywords = {"sudo", "apt", "pacman", "ls", "grep", "cd", "export", "echo"}
         c_keywords = {"#include", "int main", "void ", "char*", "printf"}
@@ -590,7 +590,7 @@ def parse_message(text: str):
             chunks.append(("text", text[last_end:], None))
         return chunks
     
-    # if there are no backticks, we'll run a quick guess to see if the whole thing is code
+    # fallback heuristic guess
     if looks_like_code(text):
         return [("code", text.strip(), "text")]  # trigger auto
         

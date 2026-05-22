@@ -1,10 +1,10 @@
-# this script handles saving and loading your chat history as JSON files
+# saving and loading chat sessions
 import json
 import os
 import time
 
 def save_session(app) -> None:
-    # save the current conversation history to your config folder
+    # save conversation to config
     if not app.history:
         return
         
@@ -18,7 +18,7 @@ def save_session(app) -> None:
             title = content[:40].replace("\n", " ") + ("..." if len(content) > 40 else "")
             break
     
-    # make sure we record which model was used in this chat
+    # track model used
     existing_model = app.current_model if app.current_model else "none"
     
     data = {
@@ -46,7 +46,7 @@ def save_session(app) -> None:
         print(f"Error saving session: {e}")
 
 def load_history_metadata(app) -> None:
-    # read all of your saved chat files to display them in the sidebar
+    # read chat files for sidebar
     app.sessions_metadata = []
     if not os.path.exists(app.history_dir):
         return
@@ -63,5 +63,6 @@ def load_history_metadata(app) -> None:
                     "model": data.get("model", "unknown")
                 })
         except Exception as e:
+            # just skip corrupt json files because we aren't going to fix them here
             print(f"Error loading session {f}: {e}")
     app.update_history_ui()
