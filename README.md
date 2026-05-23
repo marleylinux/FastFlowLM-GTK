@@ -4,7 +4,7 @@ A native GTK4 chat client for [FastFlowLM](https://github.com/FastFlowLM/FastFlo
 
 It belongs on desktop Linux. It uses GTK4, `GtkSourceView 5`, and avoids bloated Electron/web frameworks so it doesn't chew through your RAM just to talk to local LLMs. It fits cleanly into GNOME or tiling window managers.
 
-No telemetry, no tracking, no web slop. Just a simple offline tool.
+No telemetry, no tracking, no web. Just a simple offline tool.
 
 ---
 
