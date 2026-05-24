@@ -8,6 +8,7 @@ import shutil
 import flm
 import re
 import display
+import utils
 from typing import Optional
 
 async def init_server(app) -> None:
@@ -22,29 +23,41 @@ async def wait_for_server(app) -> None:
     app.btn_send.set_sensitive(False)
     app.update_model_ui()
     
+    target_model = app.current_model
+    target_process = app.server_process
+    
     for i in range(45):
+        if app.current_model != target_model or app.server_process != target_process:
+            app.model_loading = False
+            return
+            
         # check if server died
-        if app.server_process and app.server_process.poll() is not None:
-            rc = app.server_process.poll()
-            display.add_system_message(app, f"Error: Server process exited with code {rc}.")
-            display.add_system_message(app, "Check ~/.config/flm/server.log for details.")
+        if target_process and target_process.poll() is not None:
+            rc = target_process.poll()
+            if rc not in (15, -15, 9, -9) and not (rc == 1 and target_model != app.current_model):
+                display.clear_status_labels(app)
+                display.add_system_message(app, f"Error: Server process exited with code {rc}.")
+                display.add_system_message(app, "Check ~/.config/flm/server.log for details.")
             app.model_loading = False
             app.update_model_ui()
             return
 
-        if flm.is_server_ready(app.current_model, server_process=app.server_process):
-            display.add_system_message(app, f"{app.current_model} is ready.")
+        if flm.is_server_ready(target_model, server_process=target_process):
+            display.add_system_message(app, f"{target_model} is ready.")
             GLib.timeout_add_seconds(2, lambda: display.clear_status_labels(app))
             app.model_loading = False
             app.update_model_ui()
             return
             
         if i % 5 == 0:
-            display.add_system_message(app, f"Waiting for {app.current_model} to initialize...")
+            if target_model and target_model != "none":
+                display.add_system_message(app, f"Waiting for {target_model} to initialize...")
         
         await asyncio.sleep(1)
             
-    display.add_system_message(app, "Error: Runtime server failed to stabilize.")
+    display.clear_status_labels(app)
+    if target_model and target_model != "none":
+        display.add_system_message(app, "Server startup timed out. Please try loading the model again.")
     app.model_loading = False
     app.update_model_ui()
 
@@ -127,10 +140,14 @@ async def download_model(app, model_name: str) -> None:
     except Exception as e:
         display.add_system_message(app, f"Download error: {str(e)}")
     finally:
-        app.chat_box.remove(progress)
         app.downloading_models.discard(model_name)
         app.models = flm.get_all_models()
-        app.update_model_ui()
+        
+        def finish_download_ui():
+            if progress.get_parent() == app.chat_box:
+                app.chat_box.remove(progress)
+            app.update_model_ui()
+        GLib.idle_add(finish_download_ui)
 
 def update_model_ui(app) -> None:
     # sync model UI states
@@ -142,13 +159,19 @@ def update_model_ui(app) -> None:
     # lock UI during download
     app.btn_new.set_sensitive(not is_downloading_any)
     app.history_list.set_sensitive(not is_downloading_any)
+    if hasattr(app, 'nav_list') and app.nav_list:
+        app.nav_list.set_sensitive(not is_downloading_any)
     if is_downloading_any:
         app.btn_new.set_tooltip_text(download_msg)
         app.history_list.set_tooltip_text(download_msg)
+        if hasattr(app, 'nav_list') and app.nav_list:
+            app.nav_list.set_tooltip_text(download_msg)
         app.sidebar_box.set_tooltip_text(download_msg)
     else:
         app.btn_new.set_tooltip_text("New Chat")
         app.history_list.set_tooltip_text(None)
+        if hasattr(app, 'nav_list') and app.nav_list:
+            app.nav_list.set_tooltip_text(None)
         app.sidebar_box.set_tooltip_text(None)
     
     if app.current_model and app.current_model != "none":
@@ -251,10 +274,24 @@ def update_model_ui(app) -> None:
         box.set_margin_bottom(8)
 
         # set icon based on model type
-        icon_name = "view-reveal-symbolic" if is_vlm else "cpu-symbolic"
-        icon = Gtk.Image.new_from_icon_name(icon_name)
-        icon.add_css_class("model-icon")
-        box.append(icon)
+        logo_file = utils.get_model_logo_file(model_name)
+        logo_loaded = False
+        
+        if logo_file:
+            assets_dir = os.path.dirname(os.path.abspath(__file__))
+            logo_path = os.path.join(assets_dir, logo_file)
+            if os.path.exists(logo_path):
+                icon = Gtk.Image.new_from_file(logo_path)
+                icon.set_pixel_size(24)
+                icon.add_css_class("model-logo-img")
+                box.append(icon)
+                logo_loaded = True
+                
+        if not logo_loaded:
+            icon_name = "view-reveal-symbolic" if is_vlm else "cpu-symbolic"
+            icon = Gtk.Image.new_from_icon_name(icon_name)
+            icon.add_css_class("model-icon")
+            box.append(icon)
         
         # layout name and status badges
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -395,44 +432,53 @@ def confirm_delete(app, model_data: dict, popover: Gtk.Popover) -> None:
     dialog.connect("response", on_response)
     dialog.present()
 
+async def delete_model_background(app, model_data: dict) -> None:
+    model_name = model_data['model']
+    if app.current_model == model_name:
+        app.execute_eject()
+
+    display.add_system_message(app, f"Removing {model_name}...")
+    
+    def perform_deletion():
+        # remove model via flm cli
+        subprocess.run(["flm", "remove", model_name], check=True)
+        
+        # purge weights directory
+        repo_folder = None
+        url = model_data.get('url') or model_data.get('file_url')
+        if url:
+            parts = url.split('/')
+            # guess folder from hf url
+            if "huggingface.co" in url and len(parts) >= 5:
+                repo_folder = parts[4]
+        
+        if repo_folder:
+            models_dir = os.path.expanduser("~/.config/flm/models")
+            target_path = os.path.join(models_dir, repo_folder)
+            if os.path.exists(target_path):
+                import shutil
+                shutil.rmtree(target_path)
+                return f"Purged model directory: {repo_folder}"
+        return None
+
+    try:
+        purge_msg = await asyncio.to_thread(perform_deletion)
+        if purge_msg:
+            display.add_system_message(app, purge_msg)
+        display.add_system_message(app, f"Removed {model_name}")
+    except subprocess.CalledProcessError:
+        display.add_system_message(app, f"Model files were missing. Cleaning up UI.")
+    except Exception as e:
+        display.add_system_message(app, f"Deletion error: {str(e)}")
+    
+    # reload models and sync UI
+    app.models = flm.get_all_models()
+    app.update_model_ui()
+
 def on_delete_response(app, dialog: Adw.MessageDialog, response: str, model_data: dict) -> None:
     # delete response handler
     if response == "delete":
-        model_name = model_data['model']
-        # unload model before deleting
-        if app.current_model == model_name:
-            app.execute_eject()
-
-        display.add_system_message(app, f"Removing {model_name}...")
-        try:
-            # remove model via flm cli
-            subprocess.run(["flm", "remove", model_name], check=True)
-            
-            # purge weights directory
-            repo_folder = None
-            url = model_data.get('url') or model_data.get('file_url')
-            if url:
-                parts = url.split('/')
-                # guess folder from hf url
-                if "huggingface.co" in url and len(parts) >= 5:
-                    repo_folder = parts[4]
-            
-            if repo_folder:
-                models_dir = os.path.expanduser("~/.config/flm/models")
-                target_path = os.path.join(models_dir, repo_folder)
-                if os.path.exists(target_path):
-                    shutil.rmtree(target_path)
-                    display.add_system_message(app, f"Purged model directory: {repo_folder}")
-
-            display.add_system_message(app, f"Removed {model_name}")
-        except subprocess.CalledProcessError:
-            display.add_system_message(app, f"Model files were missing. Cleaning up UI.")
-        except Exception as e:
-            display.add_system_message(app, f"Deletion error: {str(e)}")
-        
-        # reload models and sync UI
-        app.models = flm.get_all_models()
-        app.update_model_ui()
+        app.run_task(delete_model_background(app, model_data))
     dialog.destroy()
 
 def on_row_activated(app, listbox: Gtk.ListBox, row: Gtk.ListBoxRow, popover: Gtk.Popover) -> None:

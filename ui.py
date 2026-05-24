@@ -13,6 +13,123 @@ def _get_new_chat_icon() -> str:
             return "tab-new-symbolic"
     return "document-new-symbolic"
 
+def get_cpu_name() -> str:
+    try:
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if "model name" in line:
+                    name = line.split(":", 1)[1].strip()
+                    # Clean up graphics/processor suffixes robustly
+                    if " w/" in name:
+                        name = name.split(" w/", 1)[0]
+                    if " with " in name:
+                        name = name.split(" with ", 1)[0]
+                    name = name.replace("Processor", "")
+                    # Shorten name if too long
+                    if len(name) > 35:
+                        name = name[:32] + "..."
+                    return name.strip()
+    except Exception:
+        pass
+    import platform
+    return platform.processor() or "AMD Ryzen AI"
+
+def get_npu_details() -> dict:
+    details = {
+        "present": False,
+        "name": "AMD NPU",
+        "firmware": "Unknown",
+        "contexts": "No active contexts",
+        "columns": "8 Columns"
+    }
+    # Check if xrt-smi is in path
+    import shutil
+    import subprocess
+    if not shutil.which("xrt-smi"):
+        return details
+        
+    try:
+        res = subprocess.run(["xrt-smi", "examine"], capture_output=True, text=True, timeout=3)
+        if res.returncode == 0:
+            details["present"] = True
+            for line in res.stdout.splitlines():
+                if "NPU Firmware Version" in line:
+                    details["firmware"] = line.split(":", 1)[1].strip()
+                elif "RyzenAI" in line or "npu" in line.lower():
+                    # Parse device name
+                    parts = [p.strip() for p in line.split("|") if p.strip()]
+                    if len(parts) >= 2 and "BDF" not in parts[0]:
+                        details["name"] = parts[1]
+                        
+        res_device = subprocess.run(["xrt-smi", "examine", "-r", "all"], capture_output=True, text=True, timeout=3)
+        if res_device.returncode == 0:
+            stdout = res_device.stdout
+            if "No hardware contexts running" in stdout:
+                details["contexts"] = "Idle (0 Contexts)"
+            elif "AIE Partitions" in stdout:
+                details["contexts"] = "Active Contexts"
+            
+            for line in stdout.splitlines():
+                if "Total Columns" in line:
+                    details["columns"] = line.split(":", 1)[1].strip() + " Columns"
+    except Exception as e:
+        import logging
+        logging.error(f"Error parsing NPU details: {e}")
+        
+    return details
+
+def _build_monitor_card(icon_name: str, name: str, val_str: str, unit_str: str, fraction: float = 0.0) -> Gtk.Box:
+    card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    card.add_css_class("monitor-card")
+    card.set_hexpand(True)
+
+    # Top Row: Icon + Name
+    top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    top_row.set_hexpand(True)
+
+    icon = Gtk.Image.new_from_icon_name(icon_name)
+    icon.add_css_class("monitor-icon")
+    top_row.append(icon)
+
+    name_lbl = Gtk.Label(label=name)
+    name_lbl.add_css_class("monitor-name-label")
+    name_lbl.set_halign(Gtk.Align.START)
+    name_lbl.set_hexpand(True)
+    top_row.append(name_lbl)
+
+    card.append(top_row)
+
+    # Middle Row: Big Value + unit
+    val_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    val_row.set_halign(Gtk.Align.START)
+    val_row.set_margin_top(8)
+
+    val_lbl = Gtk.Label(label=val_str)
+    val_lbl.add_css_class("monitor-value-label")
+    val_row.append(val_lbl)
+
+    unit_lbl = Gtk.Label(label=unit_str)
+    unit_lbl.add_css_class("monitor-unit-label")
+    unit_lbl.set_valign(Gtk.Align.END)
+    unit_lbl.set_margin_bottom(3)
+    val_row.append(unit_lbl)
+    card.append(val_row)
+
+    # Bottom Row: Progress bar
+    bar = Gtk.ProgressBar()
+    bar.add_css_class("usage-bar")
+    bar.set_fraction(fraction)
+    card.append(bar)
+
+    # Attach references for easy live updates!
+    card._val_lbl = val_lbl
+    card._bar = bar
+    card._name_lbl = name_lbl
+    card._unit_lbl = unit_lbl
+    card._top_row = top_row
+
+    return card
+
 def show_welcome_message(app):
     # show welcome screen
     display.chat_box_remove_all(app)
@@ -27,24 +144,193 @@ def show_welcome_message(app):
     app.btn_repair.set_sensitive(False)
     app.btn_attach.set_sensitive(False)
 
-    status_page = Adw.StatusPage()
-    status_page.set_icon_name(_get_new_chat_icon())
-        
-    status_page.set_title("FastFlowLM")
+    # Welcome Dashboard Outer Container
+    welcome_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+    welcome_container.set_hexpand(True)
+    welcome_container.set_halign(Gtk.Align.FILL)
+
+    # 1. CPU and Hero status banner
+    hero_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+    hero_box.add_css_class("hero-box")
     
-    info_text = (
-        "A premium native interface for local LLMs.\n\n"
+    # Left: Pulsating Status
+    status_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    status_box.set_valign(Gtk.Align.CENTER)
+    status_pill = Gtk.Label(label="● System Status")
+    status_pill.add_css_class("live-status-pill")
+    status_box.append(status_pill)
+    hero_box.append(status_box)
+
+    # Center: Icon + Text
+    center_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+    center_content.set_hexpand(True)
+    center_content.set_halign(Gtk.Align.CENTER)
+
+    hero_icon = Gtk.Image.new_from_icon_name("utilities-system-monitor-symbolic")
+    hero_icon.set_pixel_size(48)
+    hero_icon.add_css_class("hero-icon")
+    center_content.append(hero_icon)
+
+    text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    text_box.set_valign(Gtk.Align.CENTER)
+
+    title_lbl = Gtk.Label(label="FastFlowLM Dashboard")
+    title_lbl.add_css_class("hero-title")
+    title_lbl.set_halign(Gtk.Align.START)
+    text_box.append(title_lbl)
+
+    subtitle_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+    subtitle_lbl = Gtk.Label(label="Local LLM Workspace on")
+    subtitle_lbl.add_css_class("hero-subtitle")
+    subtitle_box.append(subtitle_lbl)
+
+    cpu_name = get_cpu_name()
+    cpu_badge = Gtk.Label(label=cpu_name)
+    cpu_badge.add_css_class("hero-cpu-badge")
+    subtitle_box.append(cpu_badge)
+    text_box.append(subtitle_box)
+    
+    center_content.append(text_box)
+    hero_box.append(center_content)
+
+    welcome_container.append(hero_box)
+
+    # 2. Diagnostic Warning Row for NPU validation results
+    # We create it invisible by default, and update it from main.py validation callback
+    diag_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    diag_box.add_css_class("diagnostic-row")
+    diag_box.add_css_class("warning") # Default style
+    diag_box.set_visible(False)
+
+    diag_title = Gtk.Label()
+    diag_title.add_css_class("diagnostic-row-title")
+    diag_title.set_halign(Gtk.Align.START)
+    diag_box.append(diag_title)
+
+    diag_sub = Gtk.Label()
+    diag_sub.add_css_class("diagnostic-row-subtitle")
+    diag_sub.set_halign(Gtk.Align.START)
+    diag_sub.set_wrap(True)
+    diag_box.append(diag_sub)
+
+    diag_fix_btn = Gtk.Button(label="Automatically Apply Fixes")
+    diag_fix_btn.add_css_class("suggested-action")
+    diag_fix_btn.add_css_class("pill")
+    diag_fix_btn.set_halign(Gtk.Align.START)
+    diag_fix_btn.set_margin_top(8)
+    diag_fix_btn.set_visible(False)
+    if hasattr(app, "on_apply_fixes_clicked"):
+        diag_fix_btn.connect("clicked", app.on_apply_fixes_clicked)
+    diag_box.append(diag_fix_btn)
+
+    app.diagnostic_banner = diag_box
+    app.diagnostic_title = diag_title
+    app.diagnostic_subtitle = diag_sub
+    app.diagnostic_fix_btn = diag_fix_btn
+    welcome_container.append(diag_box)
+
+    # 3. Two columns / widgets:
+    # We want a homogeneous grid for System Resources & original Welcome details
+    main_grid = Gtk.Grid()
+    main_grid.set_column_homogeneous(True)
+    main_grid.set_column_spacing(16)
+    main_grid.set_row_spacing(16)
+
+    # Column 1: System Resources (RAM and NPU Status)
+    res_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    
+    # Section Header
+    sec_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    sec_header.add_css_class("section-title-box")
+    sec_icon = Gtk.Image.new_from_icon_name("drive-harddisk-symbolic")
+    sec_icon.add_css_class("category-icon")
+    sec_header.append(sec_icon)
+    sec_lbl = Gtk.Label(label="NPU & System Resources")
+    sec_lbl.add_css_class("section-title-label")
+    sec_header.append(sec_lbl)
+    res_box.append(sec_header)
+
+    # Cards Box - Stacking vertically so cards extend horizontally
+    cards_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+
+    # RAM monitor card
+    import psutil
+    mem = psutil.virtual_memory()
+    total_gb = mem.total / (1024 ** 3)
+    used_gb = mem.used / (1024 ** 3)
+    percent = mem.percent / 100.0
+
+    ram_card = _build_monitor_card(
+        "drive-harddisk-symbolic", 
+        "System RAM", 
+        f"{used_gb:.1f} / {total_gb:.1f}", 
+        "GB", 
+        percent
+    )
+    # Add limit badge to RAM card for nice UI
+    top_box = ram_card.get_first_child()
+    lim_lbl = Gtk.Label(label=f"{total_gb:.0f}GB Max")
+    lim_lbl.add_css_class("monitor-limit-badge")
+    lim_lbl.set_halign(Gtk.Align.END)
+    top_box.append(lim_lbl)
+
+    cards_box.append(ram_card)
+
+    # NPU Status monitor card (moved below the RAM card)
+    npu_card = _build_monitor_card(
+        "cpu-symbolic",
+        "AMD NPU",
+        "Validating",
+        "NPU",
+        0.0
+    )
+    # Style NPU progress bar to show pulse
+    npu_card._bar.add_css_class("low")
+    
+    npu_lim_lbl = Gtk.Label(label="validate")
+    npu_lim_lbl.add_css_class("monitor-limit-badge")
+    npu_lim_lbl.set_halign(Gtk.Align.END)
+    npu_card._top_row.append(npu_lim_lbl)
+    npu_card._lim_lbl = npu_lim_lbl
+
+    cards_box.append(npu_card)
+    
+    res_box.append(cards_box)
+
+    app._dashboard_cards = [ram_card, npu_card]
+    app._ram_card = ram_card
+    app._npu_card = npu_card
+
+    main_grid.attach(res_box, 0, 0, 1, 1)
+
+    # Column 2: Welcome Information & Actions
+    welcome_info_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    welcome_info_card.add_css_class("monitor-card")
+    welcome_info_card.set_vexpand(True)
+    welcome_info_card.set_hexpand(True)
+
+    welcome_title_lbl = Gtk.Label(label="Welcome to FastFlowLM")
+    welcome_title_lbl.add_css_class("section-title-label")
+    welcome_title_lbl.set_halign(Gtk.Align.START)
+    welcome_info_card.append(welcome_title_lbl)
+
+    info_desc = Gtk.Label()
+    info_desc.set_markup(
+        "<span size='medium'>A premium native interface for local LLMs.</span>\n\n"
         "• Crafted using modern GTK 4 &amp; Libadwaita standards\n"
         "• Dynamic multi-format attachments (Images &amp; Code/Text)\n"
         "• Keyboard-driven with advanced lock integration\n"
         "• Lightweight, lightning-fast native desktop performance\n"
         "• Real-time session and chat history management"
     )
-    status_page.set_description(info_text)
-    
-    action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+    info_desc.set_halign(Gtk.Align.START)
+    info_desc.set_wrap(True)
+    welcome_info_card.append(info_desc)
+
+    action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    action_box.set_margin_top(12)
     action_box.set_halign(Gtk.Align.CENTER)
-    
+
     btn_start = Gtk.Button(label="Start New Chat")
     btn_start.add_css_class("pill")
     btn_start.add_css_class("accent-btn")
@@ -53,10 +339,10 @@ def show_welcome_message(app):
     btn_start.connect("clicked", lambda b: app.on_new_chat(None))
     action_box.append(btn_start)
 
-    credits_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+    credits_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
     credits_box.set_halign(Gtk.Align.CENTER)
-    credits_box.set_margin_top(12)
-    
+    credits_box.set_margin_top(8)
+
     link_ui = Gtk.LinkButton(uri="https://github.com/marleylinux/FastFlowLM-gtk", label="FastFlowLM-gtk")
     link_ui.set_halign(Gtk.Align.CENTER)
     credits_box.append(link_ui)
@@ -65,15 +351,20 @@ def show_welcome_message(app):
     link_engine.add_css_class("dim-label")
     link_engine.set_halign(Gtk.Align.CENTER)
     credits_box.append(link_engine)
-    
+
     action_box.append(credits_box)
-    status_page.set_child(action_box)
-    
-    app.chat_box.append(status_page)
+    welcome_info_card.append(action_box)
+
+    main_grid.attach(welcome_info_card, 1, 0, 1, 1)
+
+    welcome_container.append(main_grid)
+
+    app.chat_box.append(welcome_container)
 
 def build_sidebar(app) -> Adw.ToolbarView:
     # build sidebar container
     toolbar_view = Adw.ToolbarView()
+    toolbar_view.add_css_class("sidebar-pane")
     
     sidebar_header = Adw.HeaderBar()
     sidebar_header.set_show_end_title_buttons(False)
@@ -93,6 +384,51 @@ def build_sidebar(app) -> Adw.ToolbarView:
     
     content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     
+    # Dashboard navigation tab
+    app.nav_list = Gtk.ListBox()
+    app.nav_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+    app.nav_list.add_css_class("navigation-sidebar")
+    app.nav_list.connect("row-activated", app.on_nav_row_activated)
+    
+    db_row = Gtk.ListBoxRow()
+    db_row.row_id = "dashboard"
+    
+    db_main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+    db_main_box.set_margin_start(10)
+    db_main_box.set_margin_end(5)
+    db_main_box.set_margin_top(10)
+    db_main_box.set_margin_bottom(10)
+    
+    db_icon = Gtk.Image.new_from_icon_name("utilities-system-monitor-symbolic")
+    db_icon.set_pixel_size(20)
+    db_icon.set_valign(Gtk.Align.CENTER)
+    db_icon.set_halign(Gtk.Align.CENTER)
+    db_icon.set_margin_end(6)
+    
+    db_txt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    db_txt_box.set_hexpand(True)
+    
+    db_title = Gtk.Label(label="System Dashboard")
+    db_title.set_halign(Gtk.Align.START)
+    db_title.add_css_class("sidebar-title")
+    
+    db_sub = Gtk.Label(label="NPU, RAM & System Stats")
+    db_sub.set_halign(Gtk.Align.START)
+    db_sub.add_css_class("sidebar-subtitle")
+    db_sub.add_css_class("dim-label")
+    
+    db_txt_box.append(db_title)
+    db_txt_box.append(db_sub)
+    
+    db_main_box.append(db_icon)
+    db_main_box.append(db_txt_box)
+    
+    db_row.set_child(db_main_box)
+    app.nav_list.append(db_row)
+    
+    content_box.append(app.nav_list)
+
+    # Search chats box (placed below the Dashboard category)
     search_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     search_box.set_margin_start(16)
     search_box.set_margin_end(16)
@@ -104,6 +440,20 @@ def build_sidebar(app) -> Adw.ToolbarView:
     app.search_entry.connect("search-changed", app.on_search_changed)
     search_box.append(app.search_entry)
     content_box.append(search_box)
+
+    # Chat history sub-header
+    history_label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+    history_label_box.set_margin_start(16)
+    history_label_box.set_margin_end(16)
+    history_label_box.set_margin_top(8)
+    history_label_box.set_margin_bottom(4)
+    
+    history_label = Gtk.Label(label="Chat History")
+    history_label.add_css_class("sidebar-title")
+    history_label.add_css_class("dim-label")
+    history_label.set_halign(Gtk.Align.START)
+    history_label_box.append(history_label)
+    content_box.append(history_label_box)
 
     app.history_list = Gtk.ListBox()
     app.history_list.set_selection_mode(Gtk.SelectionMode.SINGLE)

@@ -31,7 +31,7 @@ chmod 644 "$INSTALL_DIR"/*.py
 chmod 755 "$INSTALL_DIR/app.py"
 
 # Install custom model avatars
-cp assets/*.png "$INSTALL_DIR/assets/"
+cp *.png "$INSTALL_DIR/assets/"
 chmod 644 "$INSTALL_DIR/assets"/*.png
 
 # Install Icon

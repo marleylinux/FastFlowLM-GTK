@@ -2,14 +2,12 @@ import asyncio
 import json
 import subprocess
 import os
-import fcntl
 import time
 import logging
 import base64
 from typing import Optional, List, Dict
 
 import init_gi
-import gi
 from gi.repository import Gtk, Gdk, GdkPixbuf, Gio, GLib, Adw, Soup
 
 import utils
@@ -33,7 +31,7 @@ class FlmChatApp(Adw.Application):
         self.server_process: Optional[subprocess.Popen] = None
         self.css_provider = Gtk.CssProvider()
         self.ai_task: Optional[asyncio.Task] = None
-        self.theme_color: str = theme.load_theme_color()
+        self.theme_name: str = theme.load_theme_name()
         self.models: List[Dict] = flm.get_all_models()
         self.current_model: Optional[str] = None
 
@@ -51,13 +49,12 @@ class FlmChatApp(Adw.Application):
         self.allow_mid_chat_switch = False
         self.is_sending = False
         self.is_welcome_screen = True
+        self.dashboard_timer_id = None
+        self._dashboard_cards = []
         self.model_loading = False
         self.BASE_URL = BASE_URL
         self.favourited_chat = None
         self.load_config()
-        
-        self.lock_fd = None
-        self.acquire_system_lock()
 
     def load_config(self):
         config_path = os.path.expanduser("~/.config/flm/theme.json")
@@ -77,7 +74,7 @@ class FlmChatApp(Adw.Application):
                 with open(config_path, "r") as f:
                     config_data = json.load(f)
             
-            config_data["accent_color"] = self.theme_color
+            config_data["theme_name"] = self.theme_name
             config_data["favourited_chat"] = self.favourited_chat
             
             with open(config_path, "w") as f:
@@ -85,14 +82,32 @@ class FlmChatApp(Adw.Application):
         except Exception as e:
             logging.error(f"Error saving config: {e}")
 
-    def acquire_system_lock(self) -> None:
-        # prevent concurrent model loading
-        lock_path = os.path.expanduser("~/.config/flm/model_ram.lock")
-        try:
-            self.lock_fd = open(lock_path, 'w')
-            fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (BlockingIOError, IOError):
-            print("Warning: Another instance is managing the system models.")
+    def build_search_cache_async(self):
+        def build_cache():
+            cache = {}
+            for meta in self.sessions_metadata:
+                session_id = meta["id"]
+                path = os.path.join(self.history_dir, f"{session_id}.json")
+                try:
+                    if os.path.exists(path):
+                        with open(path, 'r') as f:
+                            data = json.load(f)
+                            full_text = " ".join([msg.get("content", "") for msg in data.get("messages", [])])
+                            cache[session_id] = full_text
+                except Exception as e:
+                    logging.error(f"Failed to cache session {session_id}: {e}")
+                    cache[session_id] = ""
+            return cache
+            
+        def on_cache_ready(cache):
+            self._search_cache = cache
+            
+        def run_cache():
+            cache = build_cache()
+            GLib.idle_add(on_cache_ready, cache)
+            
+        import threading
+        threading.Thread(target=run_cache, daemon=True).start()
 
     def do_activate(self) -> None:
         # set appearance and default actions
@@ -108,9 +123,14 @@ class FlmChatApp(Adw.Application):
         action_clear.connect("activate", self.on_clear_history)
         self.add_action(action_clear)
 
-        action_color = Gio.SimpleAction.new("choose_color", None)
-        action_color.connect("activate", self.on_choose_color)
-        self.add_action(action_color)
+        # Theme color stateful action
+        action_theme = Gio.SimpleAction.new_stateful(
+            "theme-color",
+            GLib.VariantType.new("s"),
+            GLib.Variant.new_string(self.theme_name)
+        )
+        action_theme.connect("change-state", self.on_theme_color_changed)
+        self.add_action(action_theme)
 
         self.win = Adw.ApplicationWindow(application=self)
         self.win.set_default_size(900, 800)
@@ -147,7 +167,7 @@ class FlmChatApp(Adw.Application):
         self.update_shortcuts_sensitivity()
         
         self.css_provider.load_from_data(utils.CSS.encode())
-        theme.apply_theme(self, self.theme_color)
+        theme.apply_theme(self, self.theme_name)
         # load global css
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(),
@@ -170,7 +190,21 @@ class FlmChatApp(Adw.Application):
         menu = Gio.Menu.new()
         menu.append("Allow Mid-Chat Switch", "app.allow_switch")
         menu.append("Clear All History", "app.clear_history")
-        menu.append("Choose Accent Color", "app.choose_color")
+        
+        # Theme Submenu
+        theme_menu = Gio.Menu.new()
+        theme_menu.append("Adwaita Default", "app.theme-color::default")
+        theme_menu.append("Ryzen Red", "app.theme-color::ryzen")
+        theme_menu.append("DLSS Green", "app.theme-color::geforce")
+        theme_menu.append("14nm+++ Blue", "app.theme-color::intel")
+        theme_menu.append("Archbtw Blue", "app.theme-color::arch")
+        theme_menu.append("Saints Purple", "app.theme-color::saints")
+        theme_menu.append("Noctua Brown", "app.theme-color::noctua")
+
+        section_theme = Gio.Menu.new()
+        section_theme.append_submenu("Accent Color", theme_menu)
+        menu.append_section(None, section_theme)
+
         menu.append("Keyboard Shortcuts", "app.show_shortcuts")
         self.options_btn.set_menu_model(menu)
 
@@ -179,7 +213,7 @@ class FlmChatApp(Adw.Application):
 
         self.win.present()
         
-        theme.apply_theme(self, self.theme_color)
+        theme.apply_theme(self, self.theme_name)
         
         GLib.idle_add(lambda: sessions.load_history_metadata(self))
         GLib.idle_add(lambda: self.run_task(self.init_server()))
@@ -189,19 +223,9 @@ class FlmChatApp(Adw.Application):
         text = entry.get_text().lower().strip()
         
         # build search preview cache
-        if not hasattr(self, '_search_cache'):
+        if not hasattr(self, '_search_cache') or self._search_cache is None:
             self._search_cache = {}
-            for meta in self.sessions_metadata:
-                session_id = meta["id"]
-                path = os.path.join(self.history_dir, f"{session_id}.json")
-                try:
-                    with open(path, 'r') as f:
-                        data = json.load(f)
-                        full_text = " ".join([msg.get("content", "") for msg in data.get("messages", [])])
-                        self._search_cache[session_id] = full_text
-                except Exception as e:
-                    logging.error(f"Failed to cache session {session_id}: {e}")
-                    self._search_cache[session_id] = ""
+            self.build_search_cache_async()
         
         # search helper functions
         def escape_pango(t: str) -> str:
@@ -331,7 +355,7 @@ class FlmChatApp(Adw.Application):
                 self.server_process.terminate()
                 try:
                     self.server_process.wait(timeout=2)
-                except:
+                except Exception:
                     self.server_process.kill()
                 self.server_process = None
             else:
@@ -405,6 +429,7 @@ class FlmChatApp(Adw.Application):
         # drop cache
         if hasattr(self, '_search_cache'):
             del self._search_cache
+        self.build_search_cache_async()
             
         child = self.history_list.get_first_child()
         while child:
@@ -510,12 +535,18 @@ class FlmChatApp(Adw.Application):
         display.add_system_message(self, "Ready. Select a model and send a message to start.")
         
         # deselect sidebar row
-        self.history_list.select_row(None)
+        self.history_list.unselect_all()
+        if hasattr(self, 'nav_list') and self.nav_list:
+            self.nav_list.unselect_all()
 
     def execute_eject(self):
         # terminate backend server
         if self.server_process:
             self.server_process.terminate()
+            try:
+                self.server_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.server_process.kill()
             self.server_process = None
         # kill lingering model server instances
         flm.kill_existing_servers()
@@ -555,17 +586,31 @@ class FlmChatApp(Adw.Application):
         sessions.save_session(self)
 
     async def load_session(self, session_id):
-        self.history = []
-        self.current_session_id = None
-        self.current_model = None
-        display.chat_box_remove_all(self)
-
-        self.models = flm.get_all_models()
-        path = os.path.join(self.history_dir, f"{session_id}.json")
+        if getattr(self, "_is_loading_session", False):
+            return
+        self._is_loading_session = True
+        
         try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-                self.current_session_id = session_id
+            self.is_welcome_screen = False
+            if hasattr(self, 'nav_list') and self.nav_list:
+                self.nav_list.unselect_all()
+            self.history = []
+            self.current_session_id = session_id  # set it early
+            self.current_model = None
+            display.chat_box_remove_all(self)
+
+            self.models = flm.get_all_models()
+            path = os.path.join(self.history_dir, f"{session_id}.json")
+            
+            def read_session_file():
+                with open(path, 'r') as f:
+                    return json.load(f)
+                    
+            try:
+                data = await asyncio.to_thread(read_session_file)
+                if self.current_session_id != session_id:
+                    return  # User navigated away during file read
+                
                 self.history = data.get("messages", [])
                 self.current_model = data.get("model")
                 
@@ -582,6 +627,8 @@ class FlmChatApp(Adw.Application):
                         self.model_btn.set_label(self.current_model)
                         display.add_system_message(self, "Resources clearing... please wait.")
                         await asyncio.sleep(1.5)
+                        if self.current_session_id != session_id:
+                            return  # User navigated away during sleep
                         self.server_process = flm.start_flm_serve(self.current_model, self.server_process)
                         self.run_task(self.wait_for_server())
                     else:
@@ -595,10 +642,12 @@ class FlmChatApp(Adw.Application):
                         dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
                         dialog.connect("response", self.on_missing_model_response)
                         dialog.present()
-                
+                    
                 self.update_model_ui()
-        except Exception as e:
-            display.add_system_message(self, f"Error loading session: {e}")
+            except Exception as e:
+                display.add_system_message(self, f"Error loading session: {e}")
+        finally:
+            self._is_loading_session = False
 
     def on_missing_model_response(self, dialog, response):
         if response == "download":
@@ -632,14 +681,303 @@ class FlmChatApp(Adw.Application):
             self.execute_new_chat()
         dialog.destroy()
 
+    def on_nav_row_activated(self, listbox, row):
+        if not row:
+            return
+        if getattr(row, 'row_id', None) == "dashboard":
+            # Deselect any selected row in the history list immediately
+            self.history_list.unselect_all()
+            
+            if getattr(self, "is_welcome_screen", False):
+                return
+                
+            # Save active session if we are leaving a chat
+            if self.current_session_id is not None:
+                self.save_session()
+                
+            self.show_welcome_message()
+
     def show_welcome_message(self):
+        self.is_welcome_screen = True
+        self.current_session_id = None  # Reset session ID so any pending load_session tasks abort!
         ui.show_welcome_message(self)
+        
+        # Select the dashboard row in the sidebar
+        if hasattr(self, 'nav_list') and self.nav_list:
+            self.nav_list.select_row(self.nav_list.get_row_at_index(0))
+        
+        # Stop any existing timer to avoid duplicates
+        if getattr(self, "dashboard_timer_id", None) is not None:
+            try:
+                GLib.source_remove(self.dashboard_timer_id)
+            except Exception:
+                pass
+            self.dashboard_timer_id = None
+
+        # Start periodic RAM/system resources updates
+        self.dashboard_timer_id = GLib.timeout_add_seconds(2, self.update_dashboard_timer)
+        
+        # Trigger NPU memory validation asynchronously
+        self.run_npu_validation_async()
+
+    def update_dashboard_timer(self) -> bool:
+        if not getattr(self, "is_welcome_screen", False):
+            self.dashboard_timer_id = None
+            return False
+            
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            total_gb = mem.total / (1024 ** 3)
+            used_gb = mem.used / (1024 ** 3)
+            percent = mem.percent / 100.0
+            
+            # Update RAM card
+            if hasattr(self, "_ram_card") and self._ram_card:
+                self._ram_card._val_lbl.set_text(f"{used_gb:.1f} / {total_gb:.1f}")
+                self._ram_card._bar.set_fraction(percent)
+        except Exception as e:
+            logging.error(f"Error in dashboard stats timer: {e}")
+            
+        return True # Keep timer running
+
+    def run_npu_validation_async(self):
+        import threading
+        
+        # Reset NPU card to showing validating state
+        if hasattr(self, "_npu_card") and self._npu_card:
+            self._npu_card._val_lbl.set_text("Validating")
+            self._npu_card._bar.set_fraction(0.0)
+            
+        if hasattr(self, "diagnostic_banner") and self.diagnostic_banner:
+            self.diagnostic_banner.set_visible(False)
+            
+        def run():
+            # 1. Run flm validate
+            try:
+                res = subprocess.run(["flm", "validate"], capture_output=True, text=True, timeout=10)
+                success = (res.returncode == 0)
+                stdout = res.stdout.strip()
+                stderr = res.stderr.strip()
+                output = stdout or stderr or "Validation executed successfully."
+            except Exception as e:
+                success = False
+                output = f"Could not execute flm validate: {e}"
+                
+            # 2. Run xrt-smi details
+            npu_details = ui.get_npu_details()
+                
+            # Update on UI thread
+            GLib.idle_add(self._on_npu_validation_done, success, output, npu_details)
+            
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_npu_validation_done(self, success: bool, output: str, npu_details: dict) -> bool:
+        if not getattr(self, "is_welcome_screen", False):
+            return False
+            
+        # 1. Update NPU monitor card
+        if hasattr(self, "_npu_card") and self._npu_card:
+            # Update device name and firmware badge if discovered
+            if npu_details.get("present", False):
+                if hasattr(self._npu_card, "_name_lbl") and self._npu_card._name_lbl:
+                    self._npu_card._name_lbl.set_text(npu_details["name"])
+                if hasattr(self._npu_card, "_lim_lbl") and self._npu_card._lim_lbl:
+                    fw_version = npu_details["firmware"]
+                    self._npu_card._lim_lbl.set_label(f"v{fw_version}" if fw_version != "Unknown" else "flm")
+            
+            # Display status
+            if success:
+                ctx_status = npu_details.get("contexts", "Validated")
+                self._npu_card._val_lbl.set_text("Active" if "Active" in ctx_status else "Validated")
+                self._npu_card._bar.set_fraction(1.0)
+                
+                if hasattr(self._npu_card, "_unit_lbl") and self._npu_card._unit_lbl:
+                    self._npu_card._unit_lbl.set_text(npu_details.get("columns", "NPU"))
+            else:
+                self._npu_card._val_lbl.set_text("FAILED")
+                self._npu_card._bar.set_fraction(0.2)
+                if hasattr(self._npu_card, "_unit_lbl") and self._npu_card._unit_lbl:
+                    self._npu_card._unit_lbl.set_text("ERROR")
+                
+        # 2. Update Diagnostic Banner if validation has warning or errors
+        if hasattr(self, "diagnostic_banner") and self.diagnostic_banner:
+            # Check memlock limit
+            memlock_warning = False
+            memlock_soft_str = "Unlimited"
+            try:
+                import resource
+                soft_lim, hard_lim = resource.getrlimit(resource.RLIMIT_MEMLOCK)
+                if soft_lim != resource.RLIM_INFINITY and soft_lim != -1:
+                    # If soft limit is less than 16 GB, trigger a warning
+                    if soft_lim < 16 * 1024 * 1024 * 1024:
+                        memlock_warning = True
+                        memlock_soft_str = f"{soft_lim / (1024 * 1024 * 1024):.1f} GB"
+            except Exception:
+                pass
+
+            lines = [l.strip() for l in output.splitlines() if l.strip()]
+            title = "NPU Memory Validation Succeeded" if success else "NPU Memory Validation Failed"
+            subtitle = output
+            
+            if success:
+                if memlock_warning:
+                    title = "NPU Alert: Low Memory-Lock Limit (memlock)"
+                    subtitle = f"Current limit is {memlock_soft_str}. Although validation succeeded, locking memory is required to lock LLM weights."
+                    if hasattr(self, "diagnostic_fix_btn"): self.diagnostic_fix_btn.set_visible(True)
+                else:
+                    active_str = f"NPU active contexts: {npu_details['contexts']}. " if npu_details.get('present', False) else ""
+                    title = f"NPU Memory Validation Passed"
+                    subtitle = f"Successfully validated NPU reserved memory on {npu_details['name']}.\n{active_str}Columns: {npu_details['columns']} | Firmware: {npu_details['firmware']}"
+                    if hasattr(self, "diagnostic_fix_btn"): self.diagnostic_fix_btn.set_visible(False)
+            else:
+                if memlock_warning:
+                    title = "NPU Error: Low memlock Limit Detected"
+                    subtitle = f"NPU validation failed. Locked-memory limit ({memlock_soft_str}) is too low to reserve NPU memory."
+                    if hasattr(self, "diagnostic_fix_btn"): self.diagnostic_fix_btn.set_visible(True)
+                else:
+                    if lines:
+                        title = f"NPU Error: {lines[0]}"
+                        subtitle = "\n".join(lines[1:]) if len(lines) > 1 else "Run 'flm validate' in terminal for more details."
+                    if hasattr(self, "diagnostic_fix_btn"): self.diagnostic_fix_btn.set_visible(False)
+                    
+            self.diagnostic_title.set_text(title)
+            self.diagnostic_subtitle.set_text(subtitle)
+            
+            # Remove existing dynamic classes
+            self.diagnostic_banner.remove_css_class("success")
+            self.diagnostic_banner.remove_css_class("warning")
+            self.diagnostic_banner.remove_css_class("error")
+            
+            if success:
+                if memlock_warning:
+                    self.diagnostic_banner.add_css_class("warning")
+                else:
+                    self.diagnostic_banner.add_css_class("success")
+            else:
+                self.diagnostic_banner.add_css_class("error")
+                
+            self.diagnostic_banner.set_visible(True)
+            
+        return False
+
+    def on_apply_fixes_clicked(self, btn):
+        dialog = Adw.MessageDialog(
+            transient_for=self.win,
+            heading="Apply Memlock Fixes?",
+            body="This will configure your system limits to allow unlimited memory locking, which is required for the NPU. You will be prompted for your password.\n\nA system reboot will be required after applying."
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("apply", "Apply Fix")
+        dialog.set_response_appearance("apply", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_apply_fixes_response)
+        dialog.present()
+
+    def _on_apply_fixes_response(self, dialog, response):
+        if response == "apply":
+            self.run_task(self._apply_memlock_fix_async())
+        dialog.destroy()
+
+    async def _apply_memlock_fix_async(self):
+        cmd = (
+            "rm -f /etc/security/limits.d/99-fastflowlm-memlock.conf; "
+            "sed -i '/^\\* soft memlock unlimited/d' /etc/security/limits.conf; "
+            "sed -i '/^\\* hard memlock unlimited/d' /etc/security/limits.conf; "
+            "[ -n \"$(tail -c1 /etc/security/limits.conf)\" ] && echo \"\" >> /etc/security/limits.conf; "
+            "echo '* soft memlock unlimited' >> /etc/security/limits.conf && "
+            "echo '* hard memlock unlimited' >> /etc/security/limits.conf && "
+            "sed -i 's/^#*DefaultLimitMEMLOCK=.*/DefaultLimitMEMLOCK=infinity/' /etc/systemd/system.conf"
+        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pkexec", "bash", "-c", cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            
+            if proc.returncode == 0:
+                dialog = Adw.MessageDialog(
+                    transient_for=self.win,
+                    heading="Fix Applied Successfully",
+                    body="The memory lock limits have been updated.\n\nYour system needs to be rebooted for these changes to take effect."
+                )
+                dialog.add_response("later", "Reboot Later")
+                dialog.add_response("reboot", "Reboot Now")
+                dialog.set_response_appearance("reboot", Adw.ResponseAppearance.SUGGESTED)
+                
+                def on_reboot_response(d, r):
+                    if r == "reboot":
+                        subprocess.Popen(["systemctl", "reboot"])
+                    d.destroy()
+                    
+                dialog.connect("response", on_reboot_response)
+                dialog.present()
+                if hasattr(self, "diagnostic_fix_btn"):
+                    self.diagnostic_fix_btn.set_visible(False)
+            else:
+                err_msg = stderr.decode() if stderr else "Authentication failed or cancelled."
+                display.add_system_message(self, f"Failed to apply fix: {err_msg}")
+        except Exception as e:
+            display.add_system_message(self, f"Error running fix: {e}")
 
     def on_key_pressed(self, ctrl, keyval, keycode, state):
         return handlers.on_key_pressed(self, ctrl, keyval, keycode, state)
 
     def on_send(self, widget):
         handlers.on_send(self, widget)
+
+    async def _on_send_async(self, text: str, attachments: list):
+        import logging
+        text_blocks = []
+        attachments_for_history = []
+        
+        ext_map = {
+            '.py': 'python', '.cpp': 'cpp', '.c': 'c', '.h': 'cpp',
+            '.sh': 'bash', '.js': 'javascript', '.ts': 'typescript',
+            '.json': 'json', '.md': 'markdown', '.html': 'html',
+            '.css': 'css', '.txt': 'text'
+        }
+        
+        def read_files():
+            for att in attachments:
+                if att["type"] == "text":
+                    try:
+                        with open(att["path"], "r", encoding="utf-8", errors="replace") as f:
+                            content = f.read()
+                        _, ext = os.path.splitext(att["path"].lower())
+                        lang = ext_map.get(ext, "")
+                        text_blocks.append(f"\n\n### File: {att['name']}\n```{lang}\n{content}\n```")
+                    except Exception as e:
+                        logging.error(f"Failed to read file {att['path']}: {e}")
+                        text_blocks.append(f"\n\n### File: {att['name']}\n(Error reading file: {e})")
+                else:
+                    attachments_for_history.append(att)
+                    
+        await asyncio.to_thread(read_files)
+        
+        full_prompt = text
+        if text_blocks:
+            if full_prompt:
+                full_prompt += "\n" + "\n".join(text_blocks)
+            else:
+                full_prompt = "Attached files:\n" + "\n".join(text_blocks)
+
+        def update_ui():
+            display.add_message(self, full_prompt, is_user=True, attachments=attachments)
+            self.history.append({
+                "role": "user",
+                "content": full_prompt,
+                "attachments": attachments
+            })
+            self.save_session()
+            self.update_model_ui()
+            display.scroll_to_bottom(self)
+            
+            self.ai_task = asyncio.create_task(self.get_ai_response())
+            self.tasks.add(self.ai_task)
+            
+        GLib.idle_add(update_ui)
 
     def set_entry_locked(self, locked: bool, message: str = "Please wait..."):
         self.entry.set_sensitive(not locked)
@@ -663,17 +1001,31 @@ class FlmChatApp(Adw.Application):
         self.is_sending = False
 
     async def get_ai_response(self):
-        if not self.current_model:
+        if not self.current_model or self.current_model == "none":
             display.add_system_message(self, "Please select a model first.")
+            self.is_sending = False
+            GLib.idle_add(self.unlock_ui)
+            return
+
+        # Check if the model is actually installed
+        model_data = next((m for m in self.models if m['model'] == self.current_model), None)
+        if model_data and not model_data.get('installed', False):
+            display.add_system_message(self, f"Error: {self.current_model} is not downloaded. Please download it first.")
+            self.is_sending = False
+            GLib.idle_add(self.unlock_ui)
             return
 
         if not flm.is_server_ready(self.current_model, server_process=self.server_process):
             display.add_system_message(self, "Error: Model server is not responding. Try reloading the model.")
+            self.is_sending = False
+            GLib.idle_add(self.unlock_ui)
             return
 
         thinking_box = display.add_spinner(self)
         bubble = display.add_message(self, "", is_user=False)
         full_content = ""
+        stream = None
+        data_stream = None
         
         try:
             messages = []
@@ -702,28 +1054,42 @@ class FlmChatApp(Adw.Application):
                             if path and path not in images_to_encode:
                                 images_to_encode.append(path)
 
-                for img_path in images_to_encode:
-                    try:
-                        pixbuf = GdkPixbuf.Pixbuf.new_from_file(img_path)
-                        
-                        # strip transparent alpha channel
-                        if pixbuf.get_has_alpha():
-                            white_pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, pixbuf.get_width(), pixbuf.get_height())
-                            white_pixbuf.fill(0xffffffff)
-                            pixbuf.composite(white_pixbuf, 0, 0, pixbuf.get_width(), pixbuf.get_height(), 0, 0, 1, 1, GdkPixbuf.InterpType.BILINEAR, 255)
-                            pixbuf = white_pixbuf
+                def process_images():
+                    for img_path in images_to_encode:
+                        try:
+                            pixbuf = GdkPixbuf.Pixbuf.new_from_file(img_path)
+                            
+                            # scale down massive images to prevent RAM explosion
+                            max_dim = 1024
+                            w = pixbuf.get_width()
+                            h = pixbuf.get_height()
+                            if w > max_dim or h > max_dim:
+                                scale = min(max_dim / w, max_dim / h)
+                                new_w = int(w * scale)
+                                new_h = int(h * scale)
+                                pixbuf = pixbuf.scale_simple(new_w, new_h, GdkPixbuf.InterpType.BILINEAR)
+                            
+                            # strip transparent alpha channel
+                            if pixbuf.get_has_alpha():
+                                white_pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, pixbuf.get_width(), pixbuf.get_height())
+                                white_pixbuf.fill(0xffffffff)
+                                pixbuf.composite(white_pixbuf, 0, 0, pixbuf.get_width(), pixbuf.get_height(), 0, 0, 1, 1, GdkPixbuf.InterpType.BILINEAR, 255)
+                                pixbuf = white_pixbuf
 
-                        success, buffer = pixbuf.save_to_bufferv("jpeg", ["quality"], ["90"])
-                        if success:
-                            encoded = base64.b64encode(buffer).decode("utf-8")
-                            messages[-1]["content"].append({
-                                "type": "image_url", 
-                                "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}
-                            })
-                        else:
-                            logging.error(f"Failed to convert image: {img_path}")
-                    except Exception as e:
-                        logging.error(f"Error encoding image: {e}")
+                            success, buffer = pixbuf.save_to_bufferv("jpeg", ["quality"], ["90"])
+                            if success:
+                                encoded = base64.b64encode(buffer).decode("utf-8")
+                                messages[-1]["content"].append({
+                                    "type": "image_url", 
+                                    "image_url": {"url": f"data:image/jpeg;base64,{encoded}"}
+                                })
+                            else:
+                                logging.error(f"Failed to convert image: {img_path}")
+                        except Exception as e:
+                            logging.error(f"Error encoding image: {e}")
+
+                if images_to_encode:
+                    process_images()
 
             stream = await network.get_ai_response(self, bubble, thinking_box, messages)
             if not stream:
@@ -744,44 +1110,39 @@ class FlmChatApp(Adw.Application):
                         if "choices" in chunk and len(chunk["choices"]) > 0:
                             text = chunk["choices"][0].get("delta", {}).get("content")
                             if text:
-                                if thinking_box and thinking_box.get_parent() == self.chat_box:
-                                    self.chat_box.remove(thinking_box)
+                                def update_bubble(new_text, current_full_content):
+                                    if thinking_box and thinking_box.get_parent() == self.chat_box:
+                                        self.chat_box.remove(thinking_box)
+                                    markup = utils.markdown_to_pango(current_full_content)
+                                    bubble.set_markup(markup)
+                                    display.scroll_to_bottom(self)
+                                    
                                 full_content += text
-                                markup = utils.markdown_to_pango(full_content)
-                                GLib.idle_add(bubble.set_markup, markup)
-                            display.scroll_to_bottom(self)
+                                GLib.idle_add(update_bubble, text, full_content)
                     except json.JSONDecodeError as e:
                         logging.error(f"JSON parsing error: {e}")
             
-            parent = bubble.get_parent()
-            if parent:
-                parent.remove(bubble)
-                chunks = utils.parse_message(full_content)
-                for ctype, content, lang in chunks:
-                    if ctype == "code":
-                        parent.append(display.create_code_block(content, lang))
-                    else:
-                        new_bubble = Gtk.Label()
-                        new_bubble.set_wrap(True)
-                        new_bubble.set_selectable(True)
-                        new_bubble.set_xalign(0)
-                        new_bubble.set_use_markup(True)
-                        new_bubble.set_markup(utils.markdown_to_pango(content))
-                        parent.append(new_bubble)
+            def finish_message_ui():
+                parent = bubble.get_parent()
+                if parent:
+                    parent.remove(bubble)
+                    display.render_message_chunks(self, parent, full_content)
+                    
+                    # append copy button
+                    if full_content:
+                        header = parent.get_first_child()
+                        if header:
+                            copy_btn = Gtk.Button.new_from_icon_name("edit-copy-symbolic")
+                            copy_btn.add_css_class("flat")
+                            copy_btn.add_css_class("bubble-action-btn")
+                            copy_btn.set_tooltip_text("Copy Response")
+                            copy_btn.connect("clicked", lambda b: display.copy_to_clipboard(full_content))
+                            header.append(copy_btn)
                 
-                # append copy button
-                if full_content:
-                    header = parent.get_first_child()
-                    if header:
-                        copy_btn = Gtk.Button.new_from_icon_name("edit-copy-symbolic")
-                        copy_btn.add_css_class("flat")
-                        copy_btn.add_css_class("bubble-action-btn")
-                        copy_btn.set_tooltip_text("Copy Response")
-                        copy_btn.connect("clicked", lambda b: display.copy_to_clipboard(full_content))
-                        header.append(copy_btn)
-            
-            self.history.append({"role": "assistant", "content": full_content})
-            self.save_session()
+                self.history.append({"role": "assistant", "content": full_content})
+                self.save_session()
+
+            GLib.idle_add(finish_message_ui)
         
         except asyncio.CancelledError:
             raise
@@ -789,6 +1150,14 @@ class FlmChatApp(Adw.Application):
             logging.error(f"General response error: {str(e)}")
         finally:
             self.is_sending = False
+            
+            if data_stream:
+                try: data_stream.close_async(GLib.PRIORITY_DEFAULT, None, None, None)
+                except Exception: pass
+            elif stream:
+                try: stream.close_async(GLib.PRIORITY_DEFAULT, None, None, None)
+                except Exception: pass
+
             GLib.idle_add(self.unlock_ui)
             if thinking_box and thinking_box.get_parent() == self.chat_box:
                 GLib.idle_add(self.chat_box.remove, thinking_box)
@@ -804,19 +1173,12 @@ class FlmChatApp(Adw.Application):
                         logging.error(f"Error cleaning up empty bubble: {e}")
                 GLib.idle_add(cleanup_empty_bubble)
 
-    def on_choose_color(self, action, value):
-        dialog = Gtk.ColorDialog.new()
-        dialog.choose_rgba(self.win, None, None, self.on_color_picked, None)
-
-    def on_color_picked(self, dialog, result, data):
-        try:
-            color = dialog.choose_rgba_finish(result)
-            hex_color = "#{:02x}{:02x}{:02x}".format(int(color.red * 255), int(color.green * 255), int(color.blue * 255))
-            self.theme_color = hex_color
-            theme.apply_theme(self, hex_color)
-            self.save_config()
-        except Exception as e:
-            logging.error(f"Error applying color: {e}")
+    def on_theme_color_changed(self, action, state) -> None:
+        action.set_state(state)
+        color_name = state.get_string()
+        self.theme_name = color_name
+        theme.apply_theme(self, color_name)
+        self.save_config()
 
     def on_search_chats_activated(self, action, param):
         if not self.btn_sidebar.get_active():
@@ -868,5 +1230,9 @@ class FlmChatApp(Adw.Application):
         self.save_session()
         if self.server_process:
             self.server_process.terminate()
+            try:
+                self.server_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.server_process.kill()
         flm.kill_existing_servers()
         Adw.Application.do_shutdown(self)

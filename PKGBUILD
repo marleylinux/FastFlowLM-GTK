@@ -1,11 +1,12 @@
 # Maintainer: Marley <warburtonmarley@proton.me>
 pkgname=fastflowlm-gtk
-pkgver=1.8.5
-pkgrel=2
+pkgver=2.0.0
+pkgrel=1
 pkgdesc="A minimalist, modern desktop interface for FastFlowLM, built with GTK 4 and Libadwaita."
 arch=('any')
 url="https://github.com/marleylinux/FastFlowLM-GTK"
 license=('MIT')
+install="fastflowlm-gtk.install"
 depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'libsoup3' 'gtksourceview5' 'python-psutil' 'fastflowlm' 'xrt-plugin-amdxdna')
 makedepends=('imagemagick')
 source=("com.marley.FastFlowLM-gtk.desktop"
@@ -22,12 +23,17 @@ source=("com.marley.FastFlowLM-gtk.desktop"
         "models.py"
         "display.py"
         "init_gi.py"
-        "assets/llama.png"
-        "assets/qwen.png"
-        "assets/gemini.png"
-        "assets/mistral.png"
-        "assets/phi.png")
-        sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+        "llama.png"
+        "qwen.png"
+        "gemini.png"
+        "mistral.png"
+        "phi.png"
+        "deepseek.png"
+        "liquid.png"
+        "whisper.png"
+        "nanbeige.png"
+        "gpt_oss.png")
+        sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
   # Install Python files
@@ -37,10 +43,8 @@ package() {
 
   # Install custom model avatars
   install -d "$pkgdir/usr/share/fastflowlm-gtk/assets"
-  for avatar in llama qwen gemini mistral phi; do
-    if [ -f "$srcdir/assets/$avatar.png" ]; then
-      install -m644 "$srcdir/assets/$avatar.png" "$pkgdir/usr/share/fastflowlm-gtk/assets/"
-    elif [ -f "$srcdir/$avatar.png" ]; then
+  for avatar in llama qwen gemini mistral phi deepseek liquid whisper nanbeige gpt_oss; do
+    if [ -f "$srcdir/$avatar.png" ]; then
       install -m644 "$srcdir/$avatar.png" "$pkgdir/usr/share/fastflowlm-gtk/assets/$avatar.png"
     fi
   done
