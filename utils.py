@@ -423,13 +423,13 @@ progressbar text {
 }
 
 .model-badge.badge-installed {
-    background-color: alpha(#2ec27e, 0.15);
-    color: #2ec27e;
+    background-color: @installed_badge_bg;
+    color: @installed_badge_fg;
 }
 
 .model-badge.badge-vlm {
-    background-color: alpha(#c061cb, 0.15);
-    color: #c061cb;
+    background-color: @vlm_badge_bg;
+    color: @vlm_badge_fg;
 }
 
 .model-badge.badge-available {
@@ -438,8 +438,8 @@ progressbar text {
 }
 
 .model-badge.badge-downloading {
-    background-color: alpha(#f5c211, 0.15);
-    color: #e5a50a;
+    background-color: @download_badge_bg;
+    color: @download_badge_fg;
 }
 
 .model-badge.badge-active {
@@ -496,11 +496,341 @@ progressbar text {
     color: @accent_bg_color;
     transform: scale(1.15);
 }
+
+/* logo images */
+.model-logo-img {
+    border-radius: 50%;
+    margin-left: 6px;
+}
+
+.avatar-box image {
+    padding: 0;
+    margin: 0;
+    border-radius: 50%;
+}
+
+/* ─── Navigation & Sidebar (Ptyxis Style) ────────────────── */
+.sidebar-pane {
+    background-color: @sidebar_bg_color;
+    border-right: 1px solid alpha(@window_fg_color, 0.05);
+}
+
+.sidebar-pane scrolledwindow,
+.sidebar-pane scrolledwindow viewport,
+.sidebar-pane listbox,
+.navigation-sidebar {
+    background-color: transparent;
+}
+
+.navigation-sidebar row {
+    border-radius: 10px;
+    margin: 2px 8px;
+    padding: 8px 12px;
+    transition: all 0.2s ease;
+}
+
+.navigation-sidebar row:selected {
+    background-color: alpha(@accent_bg_color, 0.12);
+    color: @accent_bg_color;
+}
+
+.navigation-sidebar row:selected .sidebar-title {
+    color: @accent_bg_color;
+    font-weight: 700;
+}
+
+.navigation-sidebar row:selected .sidebar-subtitle {
+    color: alpha(@accent_bg_color, 0.75);
+}
+
+.navigation-sidebar row:selected .favorite-btn,
+.navigation-sidebar row:selected .delete-btn {
+    color: alpha(@accent_bg_color, 0.7);
+}
+
+/* ─── Dashboard Flat Aesthetics ────────────────────────────── */
+.dashboard-hero-group list,
+.dashboard-hero-group listbox,
+.dashboard-hero-group .boxed-list {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+.dashboard-hero-group row,
+.dashboard-hero-group listboxrow {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+}
+
+.dashboard-group list,
+.dashboard-group listbox,
+.dashboard-group .boxed-list {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+.dashboard-group row,
+.dashboard-group listboxrow {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+}
+
+/* ─── Dashboard Hero Banner ───────────────────────── */
+.hero-box {
+    padding: 24px;
+    margin-bottom: 16px;
+    background: radial-gradient(circle at top center, alpha(@accent_bg_color, 0.18) 0%, alpha(@accent_bg_color, 0.05) 40%, transparent 100%);
+    border-radius: 20px;
+    border: 1px solid alpha(@accent_bg_color, 0.15);
+}
+
+.hero-icon {
+    color: @accent_bg_color;
+    -gtk-icon-shadow: 0 0 20px alpha(@accent_bg_color, 0.5);
+}
+
+.hero-title {
+    font-size: 30px;
+    font-weight: 1000;
+    letter-spacing: -1.2px;
+    color: @window_fg_color;
+    text-shadow: 0 2px 4px alpha(black, 0.15);
+}
+
+.hero-subtitle {
+    font-size: 13px;
+    font-weight: 700;
+    color: alpha(@window_fg_color, 0.45);
+}
+
+.hero-cpu-badge {
+    background-color: alpha(@accent_bg_color, 0.1);
+    color: @accent_bg_color;
+    border: 1px solid alpha(@accent_bg_color, 0.25);
+    border-radius: 8px;
+    padding: 2px 10px;
+    font-weight: 900;
+    font-size: 11px;
+    margin-left: 8px;
+}
+
+@keyframes status-pulse {
+    0% {
+        background-color: alpha(#30d158, 0.2);
+        border-color: alpha(#30d158, 0.4);
+    }
+    50% {
+        background-color: alpha(#30d158, 0.4);
+        border-color: alpha(#30d158, 0.8);
+    }
+    100% {
+        background-color: alpha(#30d158, 0.2);
+        border-color: alpha(#30d158, 0.4);
+    }
+}
+
+.live-status-pill {
+    background-color: alpha(#30d158, 0.2);
+    color: #30d158;
+    border: 1px solid alpha(#30d158, 0.4);
+    border-radius: 12px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+/* ─── Diagnostics Banner / Warning rows ─── */
+.diagnostic-row {
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    transition: all 0.2s ease;
+}
+
+.diagnostic-row.success {
+    background-color: alpha(#30d158, 0.08);
+    border: 1px solid alpha(#30d158, 0.2);
+    color: #30d158;
+}
+
+.diagnostic-row.warning {
+    background-color: alpha(#ff9f0a, 0.08);
+    border: 1px solid alpha(#ff9f0a, 0.2);
+    color: #ff9f0a;
+}
+
+.diagnostic-row.error {
+    background-color: alpha(#ff453a, 0.08);
+    border: 1px solid alpha(#ff453a, 0.2);
+    color: #ff453a;
+}
+
+.diagnostic-row-title {
+    font-weight: bold;
+    font-size: 13px;
+    margin-bottom: 2px;
+}
+
+.diagnostic-row-subtitle {
+    font-size: 11px;
+    opacity: 0.85;
+}
+
+/* ─── Premium Monitor Cards ────────────────────────── */
+.monitor-card {
+    background-color: alpha(@window_fg_color, 0.03);
+    background-image: linear-gradient(145deg, alpha(@window_fg_color, 0.02), transparent);
+    border: 1px solid alpha(@window_fg_color, 0.08);
+    border-radius: 18px;
+    padding: 16px;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 2px 4px alpha(black, 0.03);
+}
+
+.monitor-card:hover {
+    background-color: alpha(@window_fg_color, 0.06);
+    border-color: alpha(@accent_bg_color, 0.35);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 16px alpha(black, 0.08);
+}
+
+.monitor-name-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: alpha(@window_fg_color, 0.45);
+}
+
+.monitor-limit-badge {
+    font-size: 9.5px;
+    font-weight: bold;
+    color: @accent_bg_color;
+    background-color: alpha(@accent_bg_color, 0.1);
+    border: 1px solid alpha(@accent_bg_color, 0.2);
+    border-radius: 8px;
+    padding: 2px 6px;
+}
+
+.monitor-value-label {
+    font-size: 24px;
+    font-weight: 900;
+    color: @accent_bg_color;
+    font-variant-numeric: tabular-nums;
+}
+
+.monitor-unit-label {
+    font-size: 12px;
+    font-weight: bold;
+    color: alpha(@window_fg_color, 0.4);
+    margin-bottom: 3px;
+}
+
+.monitor-icon {
+    color: alpha(@window_fg_color, 0.4);
+}
+
+/* Category Headers */
+.section-title-box {
+    margin-top: 24px;
+    margin-bottom: 12px;
+    padding: 0 4px;
+}
+
+.section-title-label {
+    font-size: 15px;
+    font-weight: bold;
+    color: @window_fg_color;
+}
+
+.category-icon {
+    color: @accent_bg_color;
+}
+
+/* Usage progress bars styling */
+progressbar.usage-bar {
+    min-height: 8px;
+    margin-top: 8px;
+}
+
+progressbar.usage-bar trough {
+    border-radius: 4px;
+    background-color: alpha(@window_fg_color, 0.06);
+    min-height: 8px;
+    border: none;
+}
+
+progressbar.usage-bar progress {
+    border-radius: 4px;
+    min-height: 8px;
+    border: none;
+    transition: background-color 0.4s ease;
+    background-color: @accent_bg_color;
+}
 """
 
+from typing import Optional
+
+def get_model_logo_file(model_name: str) -> Optional[str]:
+    if not model_name:
+        return None
+    model_name_lower = model_name.lower()
+    
+    if "qwen" in model_name_lower:
+        return "qwen.png"
+    elif "gemini" in model_name_lower or "google" in model_name_lower or "gemma" in model_name_lower:
+        return "gemini.png"
+    elif "llama" in model_name_lower:
+        return "llama.png"
+    elif "deepseek" in model_name_lower:
+        return "deepseek.png"
+    elif "liquid" in model_name_lower or "lfm" in model_name_lower:
+        return "liquid.png"
+    elif "whisper" in model_name_lower:
+        return "whisper.png"
+    elif "nanbeige" in model_name_lower:
+        return "nanbeige.png"
+    elif "gpt-oss" in model_name_lower:
+        return "gpt_oss.png"
+    elif "mistral" in model_name_lower:
+        return "mistral.png"
+    elif "phi" in model_name_lower:
+        return "phi.png"
+    return None
+
 def markdown_to_pango(text: str) -> str:
+    if not text:
+        return ""
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    
+    # Bold
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'__(.*?)__', r'<b>\1</b>', text)
+    
+    # Italics
+    text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
+    text = re.sub(r'_(.*?)_', r'<i>\1</i>', text)
+    
+    # Inline code
+    text = re.sub(r'`(.*?)`', r'<tt>\1</tt>', text)
+    
+    # Lists: convert markdown list markers
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            lines[i] = re.sub(r'^(\s*)[-\*]\s+', r'\1• ', line)
+    text = '\n'.join(lines)
+    
     return text
 
 def looks_like_code(text: str) -> bool:
@@ -550,8 +880,8 @@ def looks_like_code(text: str) -> bool:
         if line.startswith('    ') or line.startswith('\t'):
             score += 3
 
-    # threshold check
-    return score >= 15
+    # raised threshold check to prevent false-positives wrapping normal paragraphs
+    return score >= 40
 
 def parse_message(text: str):
     # parse markdown and code segments

@@ -28,8 +28,6 @@ def create_code_block(code: str, language_id: str) -> Gtk.ScrolledWindow:
     }
     
     target_lang = lang_map.get(language_id.lower(), language_id)
-    if target_lang == "text":
-        target_lang = "c"
     lang = lang_manager.get_language(target_lang)
     
     buffer = GtkSource.Buffer.new_with_language(lang) if lang else GtkSource.Buffer.new()
@@ -57,6 +55,27 @@ def create_code_block(code: str, language_id: str) -> Gtk.ScrolledWindow:
     scrolled.set_max_content_height(600)
     scrolled.set_child(view)
     return scrolled
+
+def render_message_chunks(app, bubble_box, text: str) -> Optional[Gtk.Label]:
+    if text:
+        text = text.strip()
+        
+    chunks = utils.parse_message(text)
+    
+    last_bubble = None
+    for ctype, content, lang in chunks:
+        if ctype == "code":
+            bubble_box.append(create_code_block(content, lang))
+        else:
+            bubble = Gtk.Label()
+            bubble.set_wrap(True)
+            bubble.set_selectable(True)
+            bubble.set_xalign(0)
+            bubble.set_use_markup(True)
+            bubble.set_markup(utils.markdown_to_pango(content))
+            bubble_box.append(bubble)
+            last_bubble = bubble
+    return last_bubble
 
 def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
     # build message bubble layout
@@ -118,24 +137,7 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
                     img.set_pixel_size(64)
                     bubble_box.append(img)
         
-    if text:
-        text = text.strip()
-        
-    chunks = utils.parse_message(text)
-    
-    last_bubble = None
-    for ctype, content, lang in chunks:
-        if ctype == "code":
-            bubble_box.append(create_code_block(content, lang))
-        else:
-            bubble = Gtk.Label()
-            bubble.set_wrap(True)
-            bubble.set_selectable(True)
-            bubble.set_xalign(0)
-            bubble.set_use_markup(True)
-            bubble.set_markup(utils.markdown_to_pango(content))
-            bubble_box.append(bubble)
-            last_bubble = bubble
+    last_bubble = render_message_chunks(app, bubble_box, text)
             
     # build avatar box
     avatar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -150,25 +152,13 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
     else:
         # load custom avatar based on model name
         model_name = getattr(app, "current_model", None) or "Assistant"
-        model_name_lower = model_name.lower()
         
         import os
         assets_dir = os.path.dirname(os.path.abspath(__file__))
-        img_file = None
+        img_file = utils.get_model_logo_file(model_name)
         
-        if "qwen" in model_name_lower:
-            img_file = "qwen.png"
-        elif "gemini" in model_name_lower or "google" in model_name_lower:
-            img_file = "gemini.png"
-        elif "llama" in model_name_lower:
-            img_file = "llama.png"
-        elif "mistral" in model_name_lower:
-            img_file = "mistral.png"
-        elif "phi" in model_name_lower:
-            img_file = "phi.png"
-            
         if img_file:
-            img_path = os.path.join(assets_dir, "assets", img_file)
+            img_path = os.path.join(assets_dir, img_file)
             if os.path.exists(img_path):
                 avatar_img = Gtk.Image.new_from_file(img_path)
                 avatar_img.set_pixel_size(32) # scale to fit

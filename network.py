@@ -1,6 +1,7 @@
 # chat streaming request
 import json
 import init_gi
+import logging
 from gi.repository import Soup, GLib
 from typing import List
 
@@ -24,13 +25,19 @@ async def get_ai_response(app, bubble, thinking_label, messages: List[dict]):
             if status == Soup.Status.OK:
                 return stream
             
-            print(f"Server returned status {status} on attempt {attempt + 1}")
+            if stream:
+                try:
+                    stream.close(None)
+                except Exception:
+                    pass
+            
+            logging.warning(f"Server returned status {status} on attempt {attempt + 1}")
             # server errored, no point in retrying
             if status != Soup.Status.NONE and status < 500:
                 break
                 
         except Exception as e:
-            print(f"Connection attempt {attempt + 1} failed: {e}")
+            logging.warning(f"Connection attempt {attempt + 1} failed: {e}")
             
         if attempt < 4:
             import asyncio

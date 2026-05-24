@@ -25,5 +25,11 @@ rm -f "$DESKTOP_PATH"
 update-desktop-database -q
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor
 
+# Remove memlock fixes
+echo "Reverting memlock system fixes..."
+[ -f /etc/security/limits.conf ] && sed -i '/^\* soft memlock unlimited$/d' /etc/security/limits.conf
+[ -f /etc/security/limits.conf ] && sed -i '/^\* hard memlock unlimited$/d' /etc/security/limits.conf
+[ -f /etc/systemd/system.conf ] && sed -i 's/^DefaultLimitMEMLOCK=infinity/#DefaultLimitMEMLOCK=infinity/' /etc/systemd/system.conf || true
+
 echo "Uninstallation complete!"
 read -p "Press enter to exit..."

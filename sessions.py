@@ -43,7 +43,11 @@ def save_session(app) -> None:
             app.sessions_metadata.insert(0, {"id": data["id"], "title": data["title"], "model": data["model"]})
             app.update_history_ui()
     except Exception as e:
-        print(f"Error saving session: {e}")
+        import logging
+        logging.error(f"Error saving session: {e}")
+        import display
+        from gi.repository import GLib
+        GLib.idle_add(display.add_system_message, app, f"Warning: Failed to save session data.")
 
 def load_history_metadata(app) -> None:
     # read chat files for sidebar
@@ -51,7 +55,7 @@ def load_history_metadata(app) -> None:
     if not os.path.exists(app.history_dir):
         return
     files = [f for f in os.listdir(app.history_dir) if f.endswith(".json")]
-    files.sort(reverse=True)  # newest first
+    files.sort(key=lambda f: os.path.getmtime(os.path.join(app.history_dir, f)), reverse=True)  # newest modified first
     for f in files:
         try:
             path = os.path.join(app.history_dir, f)
@@ -64,5 +68,6 @@ def load_history_metadata(app) -> None:
                 })
         except Exception as e:
             # just skip corrupt json files because we aren't going to fix them here
-            print(f"Error loading session {f}: {e}")
+            import logging
+            logging.error(f"Error loading session {f}: {e}")
     app.update_history_ui()

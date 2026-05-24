@@ -1,6 +1,5 @@
 import init_gi
 from gi.repository import Gtk, Gdk, GLib, Adw
-import asyncio
 import display
 import os
 import flm
@@ -44,64 +43,11 @@ def on_send(app, widget: Optional[Gtk.Widget]) -> None:
     app.set_entry_locked(True)
     if hasattr(app, "update_shortcuts_sensitivity"):
         app.update_shortcuts_sensitivity()
-    
-    # process attachments
-    attachments_for_history = []
-    text_blocks = []
-    
-    # map extensions to markdown syntax language
-    ext_map = {
-        '.py': 'python',
-        '.cpp': 'cpp',
-        '.c': 'c',
-        '.h': 'cpp',
-        '.sh': 'bash',
-        '.js': 'javascript',
-        '.ts': 'typescript',
-        '.json': 'json',
-        '.md': 'markdown',
-        '.html': 'html',
-        '.css': 'css',
-        '.txt': 'text'
-    }
-    
-    for att in app.selected_attachments:
-        if att["type"] == "text":
-            try:
-                with open(att["path"], "r", encoding="utf-8", errors="replace") as f:
-                    content = f.read()
-                _, ext = os.path.splitext(att["path"].lower())
-                lang = ext_map.get(ext, "")
-                text_blocks.append(f"\n\n### File: {att['name']}\n```{lang}\n{content}\n```")
-            except Exception as e:
-                logging.error(f"Failed to read file {att['path']}: {e}")
-                text_blocks.append(f"\n\n### File: {att['name']}\n(Error reading file: {e})")
-        else:
-            attachments_for_history.append(att)
-            
-    full_prompt = text
-    if text_blocks:
-        if full_prompt:
-            full_prompt += "\n" + "\n".join(text_blocks)
-        else:
-            full_prompt = "Attached files:\n" + "\n".join(text_blocks)
-
-    display.add_message(app, full_prompt, is_user=True, attachments=app.selected_attachments)
-    app.history.append({
-        "role": "user",
-        "content": full_prompt,
-        "attachments": app.selected_attachments.copy()
-    })
-    
+        
+    # Launch async task to read files off the main thread
+    app.run_task(app._on_send_async(text, app.selected_attachments.copy()))
     app.selected_attachments = []
     app.update_thumbnail()
-    
-    app.save_session()
-    app.update_model_ui()
-    app.ai_task = asyncio.create_task(app.get_ai_response())
-    app.tasks.add(app.ai_task)
-    
-    GLib.idle_add(lambda: display.scroll_to_bottom(app))
 
 def on_attach_clicked(app, btn):
     if len(app.selected_attachments) >= 3:
@@ -222,30 +168,50 @@ def complete_switch_toggle(app, action, response):
         app.update_model_ui()
 
 def on_history_row_activated(app, listbox, row):
-    session_id = getattr(row, 'session_id', None)
-    if session_id:
-        if app.current_session_id == session_id:
-            return
+    # Unselect the dashboard visually right away to prevent dual highlight
+    if hasattr(app, 'nav_list') and app.nav_list:
+        app.nav_list.unselect_all()
         
-        if flm.is_model_in_memory(app.server_process) or app.server_process or app.current_model:
-            dialog = Adw.MessageDialog(
-                transient_for=app.win,
-                heading="Switch Chat?",
-                body="Switching chats will unload the current model and clear the current chat session. Continue?"
-            )
-            dialog.add_response("cancel", "Cancel")
-            dialog.add_response("switch", "Switch")
-            dialog.set_response_appearance("switch", Adw.ResponseAppearance.DESTRUCTIVE)
-            dialog.connect("response", lambda d, r: on_switch_dialog_response(app, d, r, session_id))
-            dialog.present()
-        else:
-            app.run_task(app.load_session(session_id))
+    session_id = getattr(row, 'session_id', None)
+    if not session_id: return
+    
+    if app.current_session_id == session_id:
+        return
+
+    if flm.is_model_in_memory(app.server_process) or app.server_process or (app.current_model and app.current_model != "none"):
+        dialog = Adw.MessageDialog(
+            transient_for=app.win,
+            heading="Switch Chat?",
+            body="Switching chats will unload the current model and clear the current chat session. Continue?"
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("switch", "Switch")
+        dialog.set_response_appearance("switch", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", lambda d, r: on_switch_dialog_response(app, d, r, session_id))
+        dialog.present()
+    else:
+        app.run_task(app.load_session(session_id))
 
 def on_switch_dialog_response(app, dialog, response, session_id):
     if response == "switch":
+        if hasattr(app, 'nav_list'):
+            app.nav_list.unselect_all()
         display.cancel_ai_task(app)
         app.execute_eject()
         app.run_task(app.load_session(session_id))
+    else:
+        # User cancelled! Restore selection highlight.
+        if getattr(app, 'is_welcome_screen', False):
+            if hasattr(app, 'nav_list') and app.nav_list:
+                app.nav_list.select_row(app.nav_list.get_row_at_index(0))
+            app.history_list.unselect_all()
+        elif app.current_session_id:
+            for row in app.history_list:
+                if getattr(row, 'session_id', None) == app.current_session_id:
+                    app.history_list.select_row(row)
+                    break
+        else:
+            app.history_list.unselect_all()
     dialog.destroy()
 
 def on_delete_clicked(app, btn, session_id):

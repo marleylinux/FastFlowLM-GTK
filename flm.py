@@ -3,6 +3,7 @@ import json
 import psutil
 import time
 import os
+import logging
 from typing import List, Dict, Optional
 
 def get_all_models() -> List[Dict]:
@@ -15,7 +16,7 @@ def get_all_models() -> List[Dict]:
         models.sort(key=lambda x: (not x.get('installed', False), x['model']))
         return models
     except Exception as e:
-        print(f"Error listing models: {e}")
+        logging.error(f"Error listing models: {e}")
         return []
 
 def is_model_in_memory(server_process: Optional[subprocess.Popen], model_name: Optional[str] = None) -> bool:
@@ -32,7 +33,7 @@ def is_model_in_memory(server_process: Optional[subprocess.Popen], model_name: O
         result = subprocess.run(["pgrep", "-f", pattern], capture_output=True)
         return result.returncode == 0
     except Exception as e:
-        print(f"Error executing process tracking: {e}")
+        logging.error(f"Error executing process tracking: {e}")
         return False
 
 def is_port_open(port: int = 52625) -> bool:
@@ -41,7 +42,7 @@ def is_port_open(port: int = 52625) -> bool:
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.1):
             return True
-    except:
+    except Exception:
         return False
 
 def is_server_ready(model_name: str, port: int = 52625, server_process=None) -> bool:
@@ -56,7 +57,7 @@ def kill_existing_servers():
     # kill orphaned instances because pkill is a mess
     try:
         subprocess.run(["pkill", "-f", "flm serve"], stderr=subprocess.DEVNULL)
-    except:
+    except Exception:
         pass
 
 def has_sufficient_ram(required_gb=4.0) -> bool:
@@ -66,19 +67,28 @@ def has_sufficient_ram(required_gb=4.0) -> bool:
         available_gb = mem.available / (1024 ** 3)
         return available_gb >= required_gb
     except Exception as e:
-        print(f"RAM evaluation failed: {e}")
+        logging.error(f"RAM evaluation failed: {e}")
         return True  # hope for the best if psutil fails
 
 def start_flm_serve(model: str, current_server_process: Optional[subprocess.Popen]) -> subprocess.Popen:
-    # terminate existing process
+    # terminate existing process asynchronously
     if current_server_process:
-        current_server_process.terminate()
-        try:
-            current_server_process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            current_server_process.kill()
+        def reap_process(proc):
+            try:
+                proc.terminate()
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        
+        import threading
+        threading.Thread(target=reap_process, args=(current_server_process,), daemon=True).start()
             
-    # sweep leftover processes
+    # sweep leftover processes running on our default port
     kill_existing_servers()
     
     log_path = os.path.expanduser("~/.config/flm/server.log")
@@ -88,9 +98,14 @@ def start_flm_serve(model: str, current_server_process: Optional[subprocess.Pope
         f.write(f"\n--- Starting {model} at {time.ctime()} ---\n")
         f.flush()
         log_file = f
-    except:
+    except Exception:
         pass
 
-    return subprocess.Popen(["flm", "serve", model], 
+    proc = subprocess.Popen(["flm", "serve", model], 
                              stdout=log_file, 
                              stderr=log_file)
+                             
+    if log_file != subprocess.DEVNULL:
+        log_file.close()
+        
+    return proc
