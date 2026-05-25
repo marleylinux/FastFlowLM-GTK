@@ -32,22 +32,13 @@ No telemetry, no tracking, no web. Just a simple offline tool.
 
 ---
 
-## Setup Requirements: memory locking (memlock)
+## 🧠 Memory Locking (Memlock) Setup
 
-Local model loading via `fastflowlm` requires memory locking limits to be set to infinity. If you skip this, it crashes.
+Running large local AI models efficiently requires the operating system to allow "memory locking" (`memlock`), which pins the model directly into RAM/VRAM to prevent it from swapping to your slower hard drive.
 
-Here is how to set it to unlimited:
+**If you install via the AUR (`makepkg` or `yay`) or the `./install.sh` script, this is handled automatically for you.** The installer safely places a rule in `/etc/security/limits.d/` giving your user account the necessary limits. 
 
-1. Open `/etc/security/limits.conf` as root:
-   ```bash
-   sudo nano /etc/security/limits.conf
-   ```
-2. Add these to the bottom (replace `your-username` with your actual Linux user):
-   ```text
-   your-username    soft    memlock    unlimited
-   your-username    hard    memlock    unlimited
-   ```
-3. Log out or restart for the limits to take effect.
+*(Note: You may need to log out and log back in for the new system limits to apply after your very first installation).*
 
 ---
 

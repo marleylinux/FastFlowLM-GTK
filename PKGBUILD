@@ -17,23 +17,30 @@ package() {
 
   # Install Python files
   install -d "$pkgdir/usr/share/fastflowlm-gtk"
-  install -m644 *.py "$pkgdir/usr/share/fastflowlm-gtk/"
+  install -m644 src/*.py "$pkgdir/usr/share/fastflowlm-gtk/"
   chmod 755 "$pkgdir/usr/share/fastflowlm-gtk/app.py"
 
   # Install custom model avatars
   install -d "$pkgdir/usr/share/fastflowlm-gtk/assets"
   for avatar in llama qwen gemini mistral phi deepseek liquid whisper nanbeige gpt_oss; do
-    if [ -f "$avatar.png" ]; then
-      install -m644 "$avatar.png" "$pkgdir/usr/share/fastflowlm-gtk/assets/$avatar.png"
+    if [ -f "src/assets/$avatar.png" ]; then
+      install -m644 "src/assets/$avatar.png" "$pkgdir/usr/share/fastflowlm-gtk/assets/$avatar.png"
     fi
   done
 
   # Install Icon (Convert to PNG with transparency preservation)
   install -d "$pkgdir/usr/share/icons/hicolor/256x256/apps"
-  magick "flm-gtk.webp" "$pkgdir/usr/share/icons/hicolor/256x256/apps/com.marley.FastFlowLM-gtk.png"
+  magick "src/assets/flm-gtk.webp" "$pkgdir/usr/share/icons/hicolor/256x256/apps/com.marley.FastFlowLM-gtk.png"
 
   # Install Desktop file
   install -Dm644 "com.marley.FastFlowLM-gtk.desktop" "$pkgdir/usr/share/applications/com.marley.FastFlowLM-gtk.desktop"
+
+  # Install memlock limits config
+  install -d "$pkgdir/etc/security/limits.d"
+  cat <<WRAPPER > "$pkgdir/etc/security/limits.d/99-fastflowlm-gtk.conf"
+* - memlock unlimited
+WRAPPER
+  chmod 644 "$pkgdir/etc/security/limits.d/99-fastflowlm-gtk.conf"
 
   # Create executable wrapper
   install -d "$pkgdir/usr/bin"

@@ -278,8 +278,8 @@ def update_model_ui(app) -> None:
         logo_loaded = False
         
         if logo_file:
-            assets_dir = os.path.dirname(os.path.abspath(__file__))
-            logo_path = os.path.join(assets_dir, logo_file)
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            logo_path = os.path.join(base_dir, "assets", logo_file)
             if os.path.exists(logo_path):
                 icon = Gtk.Image.new_from_file(logo_path)
                 icon.set_pixel_size(24)

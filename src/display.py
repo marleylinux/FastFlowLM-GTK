@@ -154,11 +154,11 @@ def add_message(app, text: str, is_user: bool, attachments = None) -> Gtk.Label:
         model_name = getattr(app, "current_model", None) or "Assistant"
         
         import os
-        assets_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(os.path.abspath(__file__))
         img_file = utils.get_model_logo_file(model_name)
         
         if img_file:
-            img_path = os.path.join(assets_dir, img_file)
+            img_path = os.path.join(base_dir, "assets", img_file)
             if os.path.exists(img_path):
                 avatar_img = Gtk.Image.new_from_file(img_path)
                 avatar_img.set_pixel_size(32) # scale to fit

@@ -110,6 +110,17 @@ class FlmChatApp(Adw.Application):
         threading.Thread(target=run_cache, daemon=True).start()
 
     def do_activate(self) -> None:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_MEMLOCK)
+        if soft != resource.RLIM_INFINITY:
+            self.win = Adw.ApplicationWindow(application=self)
+            self.win.set_default_size(600, 500)
+            self.win.set_title("FastFlowLM-gtk")
+            self.win.set_icon_name("com.marley.FastFlowLM-gtk")
+            self.win.set_content(ui.build_memlock_page(self))
+            self.win.present()
+            return
+            
         # set appearance and default actions
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.PREFER_DARK)
         

@@ -26,21 +26,26 @@ mkdir -p "$ICON_DIR"
 mkdir -p "$APP_DIR"
 
 # Install all Python files
-cp *.py "$INSTALL_DIR/"
+cp src/*.py "$INSTALL_DIR/"
 chmod 644 "$INSTALL_DIR"/*.py
 chmod 755 "$INSTALL_DIR/app.py"
 
 # Install custom model avatars
-cp *.png "$INSTALL_DIR/assets/"
+cp src/assets/*.png "$INSTALL_DIR/assets/"
 chmod 644 "$INSTALL_DIR/assets"/*.png
 
 # Install Icon
-magick flm-gtk.webp "$ICON_DIR/com.marley.FastFlowLM-gtk.png"
+magick src/assets/flm-gtk.webp "$ICON_DIR/com.marley.FastFlowLM-gtk.png"
 chmod 644 "$ICON_DIR/com.marley.FastFlowLM-gtk.png"
 
 # Install Desktop file
 cp com.marley.FastFlowLM-gtk.desktop "$APP_DIR/com.marley.FastFlowLM-gtk.desktop"
 chmod 644 "$APP_DIR/com.marley.FastFlowLM-gtk.desktop"
+
+# Install memlock limits config
+mkdir -p /etc/security/limits.d
+echo '* - memlock unlimited' > /etc/security/limits.d/99-fastflowlm-gtk.conf
+chmod 644 /etc/security/limits.d/99-fastflowlm-gtk.conf
 
 # Create executable wrapper
 cat <<EOF > "$BIN_DIR/fastflowlm-gtk"

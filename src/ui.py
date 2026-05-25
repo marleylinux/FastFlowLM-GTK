@@ -589,3 +589,53 @@ def build_main_content(app) -> Adw.ToolbarView:
     
     toolbar_view.add_bottom_bar(bottom_bar_layout)
     return toolbar_view
+
+def build_memlock_page(app) -> Adw.ToolbarView:
+    toolbar = Adw.ToolbarView()
+    header = Adw.HeaderBar()
+    toolbar.add_top_bar(header)
+    
+    status = Adw.StatusPage()
+    status.set_icon_name("memory-symbolic")
+    status.set_title("Memory Locking Required")
+    
+    import os
+    conf_path = "/etc/security/limits.d/99-fastflowlm-gtk.conf"
+    
+    if os.path.exists(conf_path):
+        status.set_description(
+            "Local LLMs require unlimited memory locking (memlock).\n"
+            "The system limits have been updated, but you must restart your computer\n"
+            "(or log out and log back in) for the changes to take effect."
+        )
+    else:
+        status.set_description(
+            "Local LLMs require unlimited memory locking (memlock) to run efficiently.\n"
+            "Your system currently restricts this."
+        )
+        btn = Gtk.Button(label="Configure Automatically")
+        btn.add_css_class("suggested-action")
+        btn.add_css_class("pill")
+        btn.set_halign(Gtk.Align.CENTER)
+        btn.set_margin_top(16)
+        
+        def on_fix(_b):
+            import subprocess
+            cmd = "echo '* - memlock unlimited' > /etc/security/limits.d/99-fastflowlm-gtk.conf"
+            try:
+                res = subprocess.run(["pkexec", "sh", "-c", cmd])
+                if res.returncode == 0:
+                    status.set_description(
+                        "Configuration Applied!\n\n"
+                        "Please restart your computer (or log out and log back in)\n"
+                        "for the changes to take effect."
+                    )
+                    btn.set_visible(False)
+            except Exception as e:
+                print(e)
+        
+        btn.connect("clicked", on_fix)
+        status.set_child(btn)
+
+    toolbar.set_content(status)
+    return toolbar
