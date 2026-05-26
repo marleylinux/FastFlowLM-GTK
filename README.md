@@ -6,6 +6,8 @@ I put it together because I wanted something that felt normal on a Linux desktop
 
 Powered by [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM) ❤️
 
+![FastFlowLM-gtk Demo](fastflowlm.gif)
+
 ## What it does
 
 - Download and switch between local models from inside the app
