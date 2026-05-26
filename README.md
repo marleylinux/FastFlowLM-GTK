@@ -68,6 +68,8 @@ sudo ./uninstall.sh
 
 It also removes the memlock config it added.
 
+Powered by [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM)
+
 ## License
 
 MIT
