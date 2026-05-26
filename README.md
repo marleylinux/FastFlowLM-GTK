@@ -4,6 +4,8 @@ GTK4 chat app for FastFlowLM. Runs local models without Electron eating all your
 
 I put it together because I wanted something that felt normal on a Linux desktop.
 
+Powered by [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM)
+
 ## What it does
 
 - Download and switch between local models from inside the app
@@ -67,8 +69,6 @@ sudo ./uninstall.sh
 ```
 
 It also removes the memlock config it added.
-
-Powered by [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM)
 
 ## License
 
